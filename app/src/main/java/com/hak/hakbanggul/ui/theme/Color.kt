@@ -1,4 +1,4 @@
-package com.example.hakbanggul.ui.theme
+package com.hak.hakbanggul.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

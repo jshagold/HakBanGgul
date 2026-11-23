@@ -1,4 +1,4 @@
-package com.example.hakbanggul
+package com.hak.hakbanggul
 
 import org.junit.Test
 
