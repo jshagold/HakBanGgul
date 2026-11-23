@@ -1,3 +1,43 @@
 <resources>
     <string name="app_name">학반꿀</string>
+
+    <!-- 설정 화면 -->
+    <string name="settings_title">설정</string>
+    <string name="settings_intro">데이터를 받으려면 출처마다 키가 필요합니다. 키는 이 기기에만 저장됩니다.</string>
+
+    <!-- 출처 -->
+    <string name="source_twelve_data_name">Twelve Data</string>
+    <string name="source_twelve_data_description">주식과 ETF 가격</string>
+    <string name="source_fred_name">FRED</string>
+    <string name="source_fred_description">금리와 채권 지표</string>
+
+    <!-- 상태 딱지 -->
+    <string name="key_badge_none">키 없음</string>
+    <string name="key_badge_saved">저장됨</string>
+    <string name="key_badge_invalid">틀림</string>
+
+    <!-- 키 입력 -->
+    <string name="key_input_label">API 키</string>
+    <string name="key_input_placeholder">키를 붙여 넣으세요</string>
+    <string name="key_issue_link">키 발급받기</string>
+    <string name="key_issue_note">무료, 카드 등록 없음</string>
+    <string name="key_save">저장</string>
+    <string name="key_checking">확인 중</string>
+
+    <!-- 확인 결과 안내 -->
+    <string name="key_message_rejected">키가 맞지 않습니다. 다시 확인해 주세요.</string>
+    <string name="key_message_no_connection">연결이 안 되어 키를 확인하지 못했습니다. 연결을 확인하고 다시 눌러 주세요.</string>
+    <string name="key_message_unavailable">지금은 키를 확인할 수 없습니다. 잠시 뒤 다시 눌러 주세요.</string>
+    <string name="key_message_store_failed">키를 저장하지 못했습니다. 다시 눌러 주세요.</string>
+
+    <!-- 저장된 키 -->
+    <string name="key_reveal">키 보기</string>
+    <string name="key_conceal">키 가리기</string>
+    <string name="key_delete">키 지우기</string>
+    <string name="key_rejected_notice">키가 거절됐습니다. 지우고 다시 넣어 주세요.</string>
+
+    <!-- 지우기 확인 창 -->
+    <string name="key_delete_confirm_title">이 키를 지울까요?</string>
+    <string name="dialog_confirm">확인</string>
+    <string name="dialog_cancel">취소</string>
 </resources>

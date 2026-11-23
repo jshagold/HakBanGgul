@@ -1,19 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
--->
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 키와 그 암호화 키셋은 이 기기에만 둔다. 백업·기기 이전에서 뺀다. -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="datastore/api_keys.preferences_pb" />
+        <exclude domain="sharedpref" path="api_key_keyset.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="datastore/api_keys.preferences_pb" />
+        <exclude domain="sharedpref" path="api_key_keyset.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>
