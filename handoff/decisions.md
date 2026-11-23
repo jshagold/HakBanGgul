@@ -40,6 +40,9 @@
 ### D-12 (전달 1) 키 보기 아이콘은 직접 그림
 단위 5. 눈 모양(Visibility / VisibilityOff) 아이콘은 material-icons-core에 없고, material-icons-extended는 매우 커서 들이지 않았다. Material 아이콘의 모양 데이터를 옮겨 `feature/settings/presentation/KeyVisibilityIcons.kt`에 ImageVector로 두었다. 아이콘 라이브러리는 의존성에 넣지 않았다.
 
+### D-17 (전달 1) compileSdk 37.1로 올리고 Compose BOM을 최신판으로
+단위 1. Hak이 Android SDK Platform 37.1을 설치해, D-01에서 낮춰 둔 것을 되돌렸다. `app/build.gradle.kts`의 compileSdk를 `release(37) { minorApiLevel = 1 }`(37.1)로, `gradle/libs.versions.toml`의 composeBom을 2026.11.01(Compose 1.13.0)로 올렸다. 지시의 "최신 안정 버전"을 따르기 위해서다. targetSdk(36)와 minSdk(26)는 그대로다. 올린 뒤 전체 테스트 통과와 컴파일 오류 없음을 확인했다. D-01과 BACKLOG D-14는 이것으로 처리되었다.
+
 ### D-13 (전달 1) 화면이 가려질 때의 처리와 hiltViewModel
 단위 5. SettingsScreen은 `LifecycleEventEffect(ON_STOP)`에서 `LocalActivity.current?.isChangingConfigurations`가 참이 아닐 때만 onScreenHidden을 부른다. 화면 회전 때도 ON_STOP이 오기 때문이다(P-08). `hiltViewModel()`은 hilt-navigation-compose 1.4.0이 함께 들여오는 `androidx.hilt.lifecycle.viewmodel.compose`의 것을 쓴다(navigation 쪽의 것은 옮겨 가는 중이다). 딱지 색은 회색 #757575, 파랑 #1E66D0, 빨강 #C62828이고 글은 흰색이다.
 
