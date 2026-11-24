@@ -182,7 +182,7 @@ private fun RefreshButton(state: RefreshButtonState, onClick: () -> Unit) {
             modifier = Modifier.size(dimens.iconButton).semantics { contentDescription = description },
             contentAlignment = Alignment.Center,
         ) {
-            Spinner(dimens.progressTopBar)
+            Spinner(dimens.progressTopBar, dimens.progressTopBarStroke)
         }
     } else {
         val enabled = state == RefreshButtonState.ENABLED
@@ -238,14 +238,15 @@ private fun IconButtonBox(onClick: () -> Unit, enabled: Boolean, content: @Compo
 }
 
 // 돌아가는 진행 표시. 바탕 고리는 테두리 색, 도는 부분은 강조 색이다.
+// size는 선 굵기까지 넣은 고리의 바깥 지름이다(CircularProgressIndicator는 크기 안에 선을 그린다).
 @Composable
-private fun Spinner(size: Dp) {
+private fun Spinner(size: Dp, strokeWidth: Dp) {
     val colors = HakBanGgulTheme.colors
     CircularProgressIndicator(
         modifier = Modifier.size(size),
         color = colors.accent,
         trackColor = colors.border,
-        strokeWidth = HakBanGgulTheme.dimens.progressStroke,
+        strokeWidth = strokeWidth,
         strokeCap = StrokeCap.Round,
         gapSize = 0.dp,
     )
@@ -542,7 +543,9 @@ private fun LoadingCard() {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(dimens.progressTextGap),
     ) {
-        Spinner(dimens.progressCard)
+        Box(modifier = Modifier.size(dimens.progressCardSlot), contentAlignment = Alignment.Center) {
+            Spinner(dimens.progressCard, dimens.progressCardStroke)
+        }
         Text(stringResource(R.string.mood_loading), style = HakBanGgulTheme.typography.title, color = HakBanGgulTheme.colors.text)
     }
 }

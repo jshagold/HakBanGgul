@@ -56,10 +56,13 @@ data class AppDimens(
     val badgePaddingVertical: Dp = 4.dp,
     val badgePaddingHorizontal: Dp = 10.dp,
 
-    // 진행 표시
-    val progressStroke: Dp = 2.5.dp,
-    val progressTopBar: Dp = 22.dp,
-    val progressCard: Dp = 28.dp,
+    // 진행 표시: 고리의 바깥 지름(선 굵기까지 넣은 크기)과 굵기
+    val progressTopBar: Dp = 19.dp,
+    val progressTopBarStroke: Dp = 2.3.dp,
+    val progressCard: Dp = 24.dp,
+    val progressCardStroke: Dp = 2.9.dp,
+    // 받는 중 카드에서 고리를 가운데에 두는 칸. 시안의 그림 칸 크기다.
+    val progressCardSlot: Dp = 28.dp,
 
     // 안내 띠
     val bannerPaddingStart: Dp = 14.dp,
