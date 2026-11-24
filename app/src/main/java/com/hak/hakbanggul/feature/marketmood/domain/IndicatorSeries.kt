@@ -1,0 +1,19 @@
+package com.hak.hakbanggul.feature.marketmood.domain
+
+import com.hak.hakbanggul.core.model.DataSource
+
+// 항목이 쓰는 시리즈. seriesId는 티커나 출처의 ID다.
+data class IndicatorSeries(
+    val source: DataSource,
+    val seriesId: String,
+    val kind: SeriesKind,
+)
+
+// 값의 종류
+enum class SeriesKind {
+    // 일 종가
+    DAILY_CLOSE,
+
+    // 날마다의 값
+    DAILY_VALUE,
+}

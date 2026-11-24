@@ -47,7 +47,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.core.model.DataSource
-import com.hak.hakbanggul.ui.theme.HakBanGgulTheme
+import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {

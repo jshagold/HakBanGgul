@@ -1,0 +1,51 @@
+package com.hak.hakbanggul.feature.marketmood.domain
+
+import java.time.LocalDate
+
+// 판정 하나. 저장하지 않고 볼 때마다 처음부터 계산한다.
+// holdDays, upperBoundary, lowerBoundary는 규칙의 값을 그대로 옮긴 것이다.
+data class MoodAssessment(
+    // 용어: 기준 날짜
+    val asOfDate: LocalDate,
+    // 용어: 표시 단계
+    val displayedStage: MarketStage,
+    // 용어: 계산 단계
+    val computedStage: MarketStage,
+    // 용어: 현재 상태(화면에서는 종합 점수)
+    val compositeScore: Double,
+    // 기준 날짜의 계산 단계가 기준 날짜까지 연속으로 이어진 거래일 수
+    val computedStageStreak: Int,
+    val holdDays: Int,
+    val upperBoundary: Double,
+    val lowerBoundary: Double,
+    val groups: List<GroupAssessment>,
+)
+
+data class GroupAssessment(
+    val id: String,
+    val weight: Double,
+    val score: Double,
+    val indicators: List<IndicatorAssessment>,
+)
+
+data class IndicatorAssessment(
+    val id: String,
+    val score: Double,
+    val evidence: IndicatorEvidence,
+)
+
+// 항목 점수의 근거
+sealed interface IndicatorEvidence {
+
+    // aboveAverageRatio: (종가 - 평균) ÷ 평균. drawdown: 최근 1년 최고 종가에서의 낙폭(0 이하)
+    data class PriceEvidence(
+        val aboveAverageRatio: Double,
+        val drawdown: Double,
+    ) : IndicatorEvidence
+
+    // 그날이나 그 전의 가장 가까운 날의 값과 그 날짜
+    data class ValueEvidence(
+        val value: Double,
+        val valueDate: LocalDate,
+    ) : IndicatorEvidence
+}

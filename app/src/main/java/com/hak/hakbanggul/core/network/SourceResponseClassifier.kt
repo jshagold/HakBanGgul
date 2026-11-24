@@ -19,6 +19,14 @@ class SourceResponseClassifier {
         }
     }
 
+    // 출처의 요청 한도를 넘었는지 본다. HTTP 429이거나, Twelve Data가 본문 code 429로 알린 경우다.
+    fun isRateLimited(source: DataSource, httpStatus: Int, body: String?): Boolean {
+        if (httpStatus == 429) return true
+        if (source != DataSource.TWELVE_DATA) return false
+        val json = parseObject(body)
+        return json.string("status") == "error" && json.int("code") == 429
+    }
+
     // Twelve Data는 오류를 HTTP 200에 본문 code로 돌려주는 경우가 있어 본문도 본다.
     private fun classifyTwelveData(httpStatus: Int, json: JsonObject?): SourceResponseKind {
         val isErrorBody = json.string("status") == "error"

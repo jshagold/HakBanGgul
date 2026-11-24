@@ -40,4 +40,67 @@
     <string name="key_delete_confirm_title">이 키를 지울까요?</string>
     <string name="dialog_confirm">확인</string>
     <string name="dialog_cancel">취소</string>
+
+    <!-- 시장 분위기: 위쪽 줄 -->
+    <string name="action_refresh">새로 고침</string>
+    <string name="action_menu">메뉴</string>
+    <string name="menu_settings">설정</string>
+
+    <!-- 시장 분위기: 단계 이름 (장세, 종합 점수, 눈금) -->
+    <string name="stage_bull">불장</string>
+    <string name="stage_neutral">중립</string>
+    <string name="stage_weak">약세</string>
+    <string name="stage_bear">물장</string>
+
+    <!-- 시장 분위기: 종합 판정 카드 -->
+    <string name="mood_now">지금 장은</string>
+    <string name="mood_as_of">%1$d월 %2$d일 종가 기준 (미국)</string>
+    <string name="mood_composite_label">종합 점수</string>
+    <string name="mood_composite_separator">" · "</string>
+    <string name="mood_pending_notice">종합 점수는 %1$s인데 장세는 아직 %2$s입니다. 점수가 %3$d거래일 이어져야 장세가 바뀝니다. (%4$d일째)</string>
+
+    <!-- 시장 분위기: 묶음과 항목 -->
+    <string name="group_weight">비중 %1$d%%</string>
+    <string name="group_stocks">주식</string>
+    <string name="group_bond_signals">채권 신호</string>
+    <string name="indicator_broad_market">전체 시장</string>
+    <string name="indicator_broad_market_suffix">SPY</string>
+    <string name="indicator_nasdaq_100">나스닥 100</string>
+    <string name="indicator_nasdaq_100_suffix">QQQ</string>
+    <string name="indicator_technology">기술</string>
+    <string name="indicator_technology_suffix">XLK</string>
+    <string name="indicator_semiconductors">반도체</string>
+    <string name="indicator_semiconductors_suffix">SMH</string>
+    <string name="indicator_yield_curve">장단기 금리차</string>
+    <string name="indicator_yield_curve_suffix">10년 - 2년</string>
+    <string name="indicator_high_yield_spread">하이일드 스프레드</string>
+    <string name="evidence_price">200일 평균보다 %1$s · 고점보다 %2$s</string>
+    <string name="evidence_value">%1$s</string>
+    <string name="evidence_value_with_date">%1$s · %2$d월 %3$d일 값</string>
+
+    <!-- 시장 분위기: 맨 아래 안내 -->
+    <string name="mood_disclaimer">장 분위기를 요약한 참고 표시입니다. 매매 신호가 아닙니다.</string>
+    <string name="mood_data_sources">데이터: Twelve Data, FRED</string>
+    <string name="fred_notice">This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.</string>
+    <string name="fred_terms_link">FRED API 이용 약관</string>
+
+    <!-- 시장 분위기: 키 안내 카드 -->
+    <string name="key_guide_title">키를 넣어 주세요</string>
+    <string name="key_guide_description">시장 분위기를 보려면 두 출처의 키가 모두 필요합니다.</string>
+    <string name="key_guide_open_settings">설정으로 가기</string>
+
+    <!-- 시장 분위기: 받는 중, 받지 못함 -->
+    <string name="mood_loading">데이터를 받는 중</string>
+    <string name="mood_failed_title">데이터를 받지 못했습니다</string>
+    <string name="mood_failed_rate_limited">무료 한도를 넘었습니다. 잠시 뒤 다시 해 주세요.</string>
+    <string name="mood_failed_no_connection">연결을 확인하고 다시 해 주세요.</string>
+    <string name="mood_failed_other">잠시 뒤 다시 해 주세요.</string>
+    <string name="action_retry">다시 시도</string>
+
+    <!-- 시장 분위기: 안내 띠 -->
+    <string name="banner_rate_limited_title">무료 한도를 넘었습니다</string>
+    <string name="banner_rate_limited_message">잠시 뒤 다시 해 주세요. 받아 둔 값으로 보여 줍니다.</string>
+    <string name="banner_stale_title">새 값을 받지 못했습니다</string>
+    <string name="banner_no_connection_message">연결을 확인해 주세요. 받아 둔 값으로 보여 줍니다.</string>
+    <string name="banner_other_message">잠시 뒤 다시 해 주세요. 받아 둔 값으로 보여 줍니다.</string>
 </resources>

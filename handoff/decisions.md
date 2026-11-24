@@ -1,68 +1,79 @@
-기능: 설정
-변경: 신규 개발 (CS-001)
+기능: 시장 분위기
+변경: 신규 개발 (CS-002)
 
 ## DECISION
 
-### D-01 (전달 1) Compose BOM은 2026.09.00으로 둠
-단위 1. 최신 안정판 Compose BOM 2026.11.01(Compose 1.13.0)은 compileSdk 37.1 이상을 요구한다. 지금 프로젝트는 compileSdk 37(37.0)이고 이 PC에도 android-37.0까지만 깔려 있어 빌드가 실패했다. compileSdk는 지시에 없으므로 바꾸지 않고, compileSdk 37.0에서 빌드되는 가장 최신판인 2026.09.00(Compose 1.12.1)을 골랐다. 개요의 "라이브러리를 들인다"를 빌드 설정을 건드리지 않고 이루기 위해서다.
-그 밖의 버전(2026-11-23 Maven 기준 최신 안정판): KSP 2.3.14, Hilt 2.60.1, androidx.hilt 1.4.0, Retrofit 3.0.0(kotlinx.serialization 변환기 포함), OkHttp 5.5.1, kotlinx.serialization 1.13.0, DataStore 1.3.0, Tink 1.24.0, lifecycle 2.11.1, kotlinx-coroutines-test 1.11.0, Konsist 0.18.1.
+### D-01 (전달 1) 더한 라이브러리의 버전
+단위 1. 2026-11-24 Maven 기준 최신 안정판으로 했다. Room 2.8.5(`room-runtime`, `room-ktx`, KSP `room-compiler`), Navigation Compose 2.10.2, MockWebServer는 OkHttp와 같은 5.5.1(`mockwebserver3`, 테스트만).
+Room은 따로 나온 Room 3(`androidx.room3`, 3.0.3)이 더 새 안정판이지만 고르지 않았다. 지시가 "코루틴 지원" 라이브러리를 따로 들라고 하는데 그것(`room-ktx`)은 Room 2에만 있고, Room 3은 패키지와 쓰는 법이 달라 지금 빌드 도구에서 검증된 Room 2가 "데이터를 받는 첫 기능의 바탕을 만든다"는 개요에 맞기 때문이다.
 
-### D-02 (전달 1) 경계 검사는 제품 코드만, 패키지 이름의 마디로 가름
-단위 1. Konsist의 `scopeFromProduction()`으로 `main` 코드만 검사한다(테스트 코드의 가짜는 경계 대상이 아니다). `domain`·`data`·`presentation`·`di`는 `com.hak.hakbanggul` 아래 패키지 이름의 마디(점으로 나눈 한 칸)로 가른다. 기능 이름은 `feature.` 바로 다음 마디다. 검사 대상을 하나도 읽지 못하면 나머지 검사가 늘 통과하므로, `core.model`을 읽었는지 보는 검사를 하나 더 두었다. 일부러 `domain`에 `android.`·`data` import를 넣어 검사가 실패하는 것을 확인했다.
+### D-02 (전달 1) 테마의 간격 값을 AppDimens에 둠
+단위 1. 지시의 "모서리와 간격" 표에서 모서리는 AppShapes에, 간격과 크기는 새 파일 `core/ui/theme/AppDimens.kt`에 두었다. 표에 없지만 화면에 필요한 값(종합 판정 카드 안의 간격 12, 안내 카드 안의 간격 16과 제목·설명 사이 6, 묶음 카드 머리 아래 12, 안내 띠의 안쪽 여백 12·14·8과 간격 8, 다른 날 안내 상자의 안쪽 여백 10·12, 눈금의 높이 18·막대 위치 4·막대 높이 10·표시 폭 4·흰 테 2·이름과의 간격 6, 맨 아래 안내의 간격 8·여백 4·링크 위아래 6, 글만 있는 버튼의 높이 44·좌우 10, 아이콘과 글 사이 8, 진행 표시와 글 사이 12)은 시안의 HTML에서 가져와 AppDimens에 더했다. 글자도 표의 "쓰는 곳"마다 이름 붙인 스타일(예: `bodyBold` 15/700, `captionBanner` 13 줄 높이 1.5배)로 AppTypography에 두었다. 화면은 값을 직접 적지 않고 `HakBanGgulTheme.colors / typography / shapes / dimens`로 가져온다. 개요의 "공용 테마"를 다른 화면도 그대로 쓰게 하기 위해서다.
+Material3에는 강조 색을 primary, 카드 색을 surface와 모든 surfaceContainer, 테두리 색을 outlineVariant, 비활성 색을 outline, 오류 테두리 색을 error로 넣었다. 메뉴처럼 Material 부품이 그리는 것도 같은 색을 쓰게 하기 위해서다.
 
-### D-03 (전달 1) Retrofit 한정자와 공용 객체 제공 방식
-단위 2. `@TwelveDataRetrofit`, `@FredRetrofit` 한정자는 `core/di/NetworkQualifiers.kt`에 두었다. DataSourceEndpoints와 SourceResponseClassifier는 `@Inject` 생성자 없이 NetworkModule의 `@Provides`로만 제공한다(지시대로 NetworkModule이 제공하고, 두 곳에서 묶이지 않게). Json은 `ignoreUnknownKeys = true`로 둔다. 출처가 응답에 칸을 더해도 깨지지 않게 하기 위해서다.
+### D-03 (전달 1) 인터셉터가 키 거절을 가를 때 본문 앞 64KB만 봄
+단위 2. ApiKeyInterceptor는 `peekBody(64KB)`로 본문을 엿본 뒤 응답을 그대로 돌려준다. 키 거절과 오류 본문은 작아 앞부분이면 충분하고, 2년치 시세 응답(수백 KB)을 메모리에 두 번 담지 않기 위해서다. 응답 본문은 부른 쪽이 처음부터 그대로 읽는다.
 
-### D-04 (전달 1) KeyCheckManager의 중복 시작 막기
-단위 3. startSave는 "그 출처가 Checking인지 보기"와 "Checking으로 두기"를 `MutableStateFlow.update` 한 번 안에서 한다. 저장을 빠르게 두 번 눌러도 시험 요청이 한 번만 가게 하기 위해서다(R-32).
+### D-04 (전달 1) SourceCallExecutor는 요청과 본문 읽기를 IO 스레드에서 함
+단위 2. 본문 읽기는 막는 작업이라 `withContext(Dispatchers.IO)` 안에서 요청과 본문 읽기를 함께 한다. 코루틴 취소는 그대로 넘긴다.
 
-### D-05 (전달 1) 암호화 실패도 저장 실패(IOException)로 다룸
-단위 4. ApiKeyRepositoryImpl.save에서 ApiKeyCipher.encrypt가 예외를 던지면 IOException으로 감싸 던진다. 그러면 SaveApiKeyUseCase가 STORE_FAILED를 돌려준다(R-43). 감싸지 않으면 예외가 앱 범위 코루틴까지 올라가 앱이 멈춘다.
+### D-05 (전달 1) 계산기의 세부
+단위 4.
+- 항목의 그날 값은 점수 기준과 상관없이 "그날이나 그 전의 가장 가까운 날의 값"으로 찾는다. DAILY_CLOSE 항목은 거래일에 늘 값이 있어 그날의 종가가 된다. 규칙에 DAILY_CLOSE 시리즈를 HighIsGood로 쓰는 항목을 더해도 계산 코드를 고치지 않게 하기 위해서다.
+- 같은 시리즈에 같은 날짜의 값이 여럿 오면 하나만 쓴다.
+- 항목이 없는 묶음이 있거나 DAILY_CLOSE 항목이 하나도 없으면(거래일을 정할 수 없음) null을 돌려준다.
+- 표시 단계를 구할 때 계산 단계를 낼 수 있는 거래일마다 처음부터 계산한다(1년치 약 260일 × 항목). 판정을 저장하지 않는다는 개요를 따른 것이고, 테스트 37개가 0.04초 안에 끝난다.
 
-### D-06 (전달 1) 상태를 읽을 수 없는 항목도 복호화 실패처럼 지움
-단위 4. DataStore에 키는 있는데 상태 값이 없거나 SAVED·INVALID가 아니면, 복호화하지 못한 경우와 같이 그 항목을 지우고 키가 없는 것으로 본다(R-42와 같은 처리). 지우다가 IOException이 나면 무시한다(그 출처는 어차피 키 없음으로 보인다).
+### D-06 (전달 1) 받기 한 번의 세부
+단위 5.
+- 저장소의 `fetch`가 예외를 던지면 그 출처만 `Failure(OTHER)`로 다루고 다른 출처의 받기는 이어 간다.
+- "받아 둔 값에 새로 받은 값을 덮은 것"은 `observeStored()`의 지금 값에 받은 시리즈를 시리즈 단위로 바꿔 끼운 것이다(`save`가 시리즈를 통째로 바꾸는 것과 같다).
+- 시리즈 ID가 같은 항목이 둘 있어도 출처에는 한 번만 요청한다.
 
-### D-07 (전달 1) api_keys DataStore에 한정자를 붙임
-단위 4. `DataStore<Preferences>`는 다른 기능도 나중에 쓸 수 있는 흔한 타입이라, 설정의 것에 `@ApiKeysDataStore` 한정자(feature/settings/di)를 붙였다. 손상 처리기는 `ReplaceFileCorruptionHandler { emptyPreferences() }`, 읽기 IOException은 `catch`로 빈 것으로 바꾼다.
+### D-07 (전달 1) 받기 관리자의 세부
+단위 5.
+- 받기 도중에 예기치 못한 예외가 나도 앱이 멈추지 않게 `Failure(OTHER)`로 다루고, 받는 중 표시는 `finally`에서 늘 거짓으로 되돌린다.
+- `onScreenShown`은 키와 받아 둔 값을 읽어야 해 앱 범위 코루틴에서 판정한다.
+- "출처의 키가 모두 AVAILABLE"은 출처가 하나 이상이고 모두 AVAILABLE일 때다.
 
-### D-08 (전달 1) 시험 요청의 실행 위치와 취소 처리, 암호화 세부
-단위 4. ApiKeyCheckRepositoryImpl은 요청과 본문 읽기를 `Dispatchers.IO`에서 한다(본문 `string()`이 막히는 호출이라서). 10초 제한으로 취소되어 OkHttp가 IOException을 던지는 경우에는 `ensureActive()`로 취소를 그대로 넘겨, NO_CONNECTION으로 잘못 바꾸지 않는다. TinkApiKeyCipher는 암호문을 Base64(`java.util.Base64`, API 26부터 있음)로 저장하고, AEAD의 연관 데이터는 고정 문자열을 쓴다. Keystore를 여는 일은 느리므로 처음 쓸 때 한 번만 한다.
+### D-08 (전달 1) 받아 둔 값을 읽지 못하면 비우고 한 번 다시 읽음
+단위 6. `observeStored`가 읽다가 예외를 받으면 두 표를 비우고(비우다 난 예외는 무시) 한 번 다시 구독한다. 다시 읽으면 빈 표가 나오므로 "받아 둔 값이 없음"을 내주고, 그 뒤 받기로 저장되는 값도 그대로 이어서 내보낸다. 비운 뒤에도 또 실패하면 빈 값을 한 번 내주고 끝낸다. 예외를 잡자마자 빈 값을 내주고 끝내면 Flow가 닫혀 새로 받은 값이 화면에 오지 않기 때문이다(R-56, R-23).
 
-### D-09 (전달 1) 저장을 누르면 ViewModel의 입력 사본을 비움
-단위 5. onSaveClick은 그 출처의 입력 글자를 KeyCheckManager.startSave에 넘긴 뒤 ViewModel이 가진 입력 글자를 비운다. 그 뒤 입력 칸은 KeyCheckManager의 enteredKey를 보인다(지시의 "없으면 KeyCheckManager의 enteredKey"). 같은 글자를 두 곳에 두면 어긋날 수 있어서다. 입력이 빈칸뿐이거나 이미 확인 중이면 onSaveClick은 아무것도 하지 않는다(R-26, R-32).
+### D-09 (전달 1) FRED 시리즈 요청은 동시에 보냄
+단위 6. FRED는 시리즈마다 요청 하나이고, 둘을 동시에 보낸다. 출처마다 10초 제한이 있어서다. 둘 다 실패하면 규칙의 순서에서 앞 시리즈의 오류를 출처의 오류로 쓴다.
 
-### D-10 (전달 1) 틀림인 저장된 키도 키 보기로 볼 수 있음
-단위 5. 지시의 "상태가 INVALID면 … 키는 가린 채로 둔다"(R-28)를 "처음에는 가린 채로 보인다"로 읽었다. 수동 확인 R-28이 틀림 카드에도 키 보기 버튼이 있다고 하므로, 그 버튼을 눌렀을 때 아무 반응이 없지 않도록 SAVED와 같이 켜고 끌 수 있게 했다. 키를 지우면 그 출처의 키 보기도 꺼진다.
+### D-10 (전달 1) 응답 읽기의 세부
+단위 6. Twelve Data 본문 맨 위에 `status`나 `values`가 있으면 종목 하나의 모양으로, 없으면 종목 이름 아래에 하나씩 담긴 모양으로 읽는다. 종목을 여럿 요청했는데 하나의 모양(예: 요청 전체의 오류 본문)이 오면 null이다. 날짜를 읽을 수 없는 값은 숫자가 아닌 값과 같게 그날을 뺀다.
 
-### D-11 (전달 1) uiState의 첫 값은 카드 없음
-단위 5. uiState는 `WhileSubscribed(5초)`로 돌고, 첫 값은 카드가 없는 `SettingsUiState(emptyList())`다. 저장된 키를 읽기 전에 모든 카드가 "키 없음" 입력 모양으로 잠깐 보였다가 바뀌는 것을 막기 위해서다.
+### D-11 (전달 1) 화면 상태는 ViewModel이 만들어질 때부터 모음
+단위 7. `uiState`는 `SharingStarted.Eagerly`로 만든다. 화면이 잠깐 가려졌다 돌아와도 마지막 상태가 바로 보이게 하기 위해서다. 글 만들기(MoodTextFormatter)는 지시의 생성자 인자를 지키려고 ViewModel 안에서 만든다. 종합 점수 줄의 " · "와 칸마다의 단계 이름도 strings.xml에 두었다. IndicatorLabels에 없는 묶음·항목 ID가 오면 예외를 던진다(규칙에 항목을 더하고 이름을 빠뜨린 것을 바로 드러내기 위해서다).
 
-### D-12 (전달 1) 키 보기 아이콘은 직접 그림
-단위 5. 눈 모양(Visibility / VisibilityOff) 아이콘은 material-icons-core에 없고, material-icons-extended는 매우 커서 들이지 않았다. Material 아이콘의 모양 데이터를 옮겨 `feature/settings/presentation/KeyVisibilityIcons.kt`에 ImageVector로 두었다. 아이콘 라이브러리는 의존성에 넣지 않았다.
+### D-12 (전달 1) 화면 회전 때 onScreenShown을 부르지 않는 방법
+단위 8. ON_STOP에서 `Activity.isChangingConfigurations`를 `rememberSaveable` 값에 적어 두고, ON_START에서 그 값이 참이면 부르지 않고 지운다. targetSdk 28 이상에서는 상태 저장이 ON_STOP 뒤에 일어나 회전을 넘어 값이 남는다. 설정 화면에서 돌아올 때는 화면 이동의 수명 주기가 ON_STOP·ON_START를 거치므로 부른다(R-20, P-03).
 
-### D-13 (전달 1) 화면이 가려질 때의 처리와 hiltViewModel
-단위 5. SettingsScreen은 `LifecycleEventEffect(ON_STOP)`에서 `LocalActivity.current?.isChangingConfigurations`가 참이 아닐 때만 onScreenHidden을 부른다. 화면 회전 때도 ON_STOP이 오기 때문이다(P-08). `hiltViewModel()`은 hilt-navigation-compose 1.4.0이 함께 들여오는 `androidx.hilt.lifecycle.viewmodel.compose`의 것을 쓴다(navigation 쪽의 것은 옮겨 가는 중이다). 딱지 색은 회색 #757575, 파랑 #1E66D0, 빨강 #C62828이고 글은 흰색이다.
+### D-13 (전달 1) 상태 표시줄의 아이콘 색과 위쪽 줄
+단위 8. 밝은 화면 하나만 두므로 MainActivity의 `enableEdgeToEdge`에 `SystemBarStyle.light`를 넘겨, 기기가 어두운 화면이어도 상태 표시줄 아이콘이 어둡게 보이게 했다. 위쪽 줄의 흰 바탕을 상태 표시줄 자리까지 칠하고, 밀어 보는 내용의 맨 아래에 내비게이션 바만큼 여백을 둔다(R-02). 가로 화면의 노치 쪽 여백도 둔다.
 
-### D-17 (전달 1) compileSdk 37.1로 올리고 Compose BOM을 최신판으로
-단위 1. Hak이 Android SDK Platform 37.1을 설치해, D-01에서 낮춰 둔 것을 되돌렸다. `app/build.gradle.kts`의 compileSdk를 `release(37) { minorApiLevel = 1 }`(37.1)로, `gradle/libs.versions.toml`의 composeBom을 2026.11.01(Compose 1.13.0)로 올렸다. 지시의 "최신 안정 버전"을 따르기 위해서다. targetSdk(36)와 minSdk(26)는 그대로다. 올린 뒤 전체 테스트 통과와 컴파일 오류 없음을 확인했다. D-01과 BACKLOG D-14는 이것으로 처리되었다.
+### D-14 (전달 1) 화면의 그리는 법
+단위 8.
+- 눈금은 Canvas에 그린다. 양 끝이 둥근(5) 막대 안에 네 칸을 칠하고, 표시는 폭 4·모서리 2로 그린 뒤 둘레에 카드 색의 테 2를 둔다(시안의 `box-shadow: 0 0 0 2px #FFFFFF`). 시안처럼 표시가 막대 끝에 오면 반쯤 바깥으로 나온다.
+- 진행 표시는 Material3 CircularProgressIndicator를 테마 표의 크기(위쪽 줄 22, 받는 중 카드 28)와 굵기 2.5, 끝 둥글게, 바탕 고리와 도는 부분 사이 틈 없이 쓴다. 이 부품은 크기 안에 선 굵기까지 넣어 그리므로, 시안(24 칸 안의 반지름 9 원)보다 고리가 조금 크다.
+- 아이콘 버튼은 누르는 영역 44의 원 모양으로 만들었다(Material IconButton은 크기가 40·48로 정해져 있어 시안의 44와 다르다).
+- 메뉴는 Material의 DropdownMenu, 채운 버튼은 Material Button에 테마의 모양(10)과 색을 넣어 썼다.
+
+### D-15 (전달 1) 화면 이동의 경로 이름
+단위 8. AppNavHost는 글자 경로 `market_mood`, `settings`를 쓴다. 설정 화면을 여러 번 눌러도 하나만 쌓이게 `launchSingleTop`을 켰다.
 
 ## BACKLOG
 
-### D-14 (전달 1) compileSdk를 37.1 이상으로 올리고 Compose BOM 최신판으로
-D-01 때문에 Compose BOM이 최신보다 한 단계 낮다. Android SDK Platform 37.1 이상을 설치하고 `app/build.gradle.kts`의 compileSdk를 올리면 `gradle/libs.versions.toml`의 composeBom을 2026.11.01 이상으로 올릴 수 있다.
-
-### D-15 (전달 1) 키 보기 아이콘을 공용 화면 요소로 옮기기
-다른 기능도 아이콘을 쓰게 되면 `feature/settings/presentation/KeyVisibilityIcons.kt`를 `core/ui`로 옮기거나, 아이콘을 들이는 방식(벡터 리소스 등)을 하나로 정하는 것이 좋다.
+### D-16 (전달 1) 근거 문구의 "200일"이 규칙의 평균 일수를 따르지 않음
+근거 문구 `evidence_price`("200일 평균보다 %1$s · 고점보다 %2$s")에 200을 글로 적어 두었다. PriceEvidence에 평균 일수가 없어 ViewModel이 규칙의 averageDays를 알 수 없기 때문이다. 나중에 규칙의 평균 일수를 바꾸면 문구가 따라가지 않는다. PriceEvidence에 평균 일수를 더하거나 IndicatorAssessment에 점수 기준을 함께 담고, 문구를 `%1$d일 평균보다`로 바꾸면 좋다. 고칠 곳: `feature/marketmood/domain`(MoodAssessment, MoodCalculator), `feature/marketmood/presentation`(MarketMoodViewModel), `strings.xml`.
 
 ## SPEC-ISSUE
-
-### D-16 (전달 1) 경계 검사 지시가 가리키는 파일이 저장소에 없음
-단위 1 지시의 "`SDD/규칙/CLI용 CLAUDE.md` > 7. 코드 규칙 > 경계 검사"에서 그 경로의 파일이 이 저장소에 없다. 저장소 맨 위의 `CLAUDE.md`가 그 사본이라 보고, 그 파일의 "7. 코드 규칙 (Constitution) > 경계 검사" 네 가지를 검사했다.
+없음
 
 ## BUG
-
 없음
 
 ## TECH-LIMIT
-
 없음
