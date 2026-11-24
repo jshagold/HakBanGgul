@@ -89,4 +89,61 @@ data class AppDimens(
     val footerPaddingHorizontal: Dp = 4.dp,
     val footerPaddingTop: Dp = 4.dp,
     val footerLinkPaddingVertical: Dp = 6.dp,
+
+    // 설정 화면의 위쪽 줄: 좌우 여백, 뒤로 가기 버튼과 화면 이름 사이, 뒤로 가기 아이콘
+    val settingsTopBarPaddingHorizontal: Dp = 8.dp,
+    val settingsTopBarGap: Dp = 4.dp,
+    val backIcon: Dp = 24.dp,
+    // 설정 화면 본문의 위아래 여백
+    val settingsBodyPaddingVertical: Dp = 20.dp,
+
+    // 출처 카드: 안쪽 여백, 카드 안의 덩어리 사이, 출처 이름 쪽과 딱지 사이
+    val sourceCardPadding: Dp = 16.dp,
+    val sourceCardGap: Dp = 12.dp,
+    val sourceCardHeaderGap: Dp = 12.dp,
+    // 입력 덩어리의 이름표, 칸, 칸 아래 안내 사이
+    val inputGroupGap: Dp = 6.dp,
+
+    // 입력 칸
+    val inputHeight: Dp = 48.dp,
+    val inputBorder: Dp = 1.dp,
+    // 거절됐을 때의 테두리
+    val inputBorderError: Dp = 2.dp,
+    val inputPaddingHorizontal: Dp = 12.dp,
+
+    // 저장된 키 칸. 키 전체가 보일 때는 높이가 늘어난다(최소 높이).
+    val savedKeyMinHeight: Dp = 48.dp,
+    val savedKeyBorder: Dp = 1.dp,
+    // 틀림일 때의 테두리
+    val savedKeyBorderError: Dp = 2.dp,
+    val savedKeyPaddingStart: Dp = 12.dp,
+    val savedKeyPaddingEnd: Dp = 4.dp,
+    // 키 전체가 보일 때 글의 위아래 여백, 글과 버튼 사이
+    val savedKeyTextPaddingVertical: Dp = 10.dp,
+    val savedKeyTextButtonGap: Dp = 4.dp,
+
+    // 칸 아래 안내: 알림 아이콘, 아이콘과 글 사이, 아이콘 위 여백
+    val fieldNoticeIcon: Dp = 18.dp,
+    val fieldNoticeIconGap: Dp = 6.dp,
+    val fieldNoticeIconTop: Dp = 1.dp,
+
+    // 발급 안내: "키 발급받기"의 위아래 여백, 그 아래 글과의 사이, 오른쪽 버튼과의 사이
+    val issueLinkPaddingVertical: Dp = 6.dp,
+    val issueNoteGap: Dp = 2.dp,
+    val issueButtonGap: Dp = 12.dp,
+
+    // 카드 안의 버튼: 높이, 저장 버튼의 좌우 여백, 키 지우기 버튼의 좌우 여백과 테두리
+    val cardButtonHeight: Dp = 44.dp,
+    val saveButtonPaddingHorizontal: Dp = 24.dp,
+    val deleteButtonPaddingHorizontal: Dp = 16.dp,
+    val deleteButtonBorder: Dp = 1.dp,
+
+    // 확인 중 표시: 높이, 좌우 여백, 고리와 글 사이(고리 칸에서 잰다)
+    val checkingHeight: Dp = 44.dp,
+    val checkingPaddingHorizontal: Dp = 16.dp,
+    val checkingGap: Dp = 8.dp,
+    // 확인 중 고리: 바깥 지름(선 굵기까지 넣은 크기), 굵기, 고리를 가운데에 두는 칸
+    val checkingProgress: Dp = 17.5.dp,
+    val checkingProgressStroke: Dp = 2.5.dp,
+    val checkingProgressSlot: Dp = 20.dp,
 )

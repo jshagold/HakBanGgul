@@ -53,4 +53,15 @@ data class AppColors(
     val badgeSavedText: Color = Color(0xFF1D4AA8),
     val badgeInvalidBackground: Color = Color(0xFFFCE9E6),
     val badgeInvalidText: Color = Color(0xFF9F1D14),
+
+    // 설정 화면. 값이 위의 색과 같아도 쓰는 곳이 달라 따로 둔다.
+    // 비활성 입력 칸의 테두리와 바탕
+    val inputDisabledBorder: Color = Color(0xFFC9CED6),
+    val inputDisabledBackground: Color = Color(0xFFECEEF1),
+    // 비활성 채운 버튼의 바탕
+    val filledButtonDisabledBackground: Color = Color(0xFFE3E6EA),
+    // 확인 중 표시의 바탕, 글과 고리의 도는 부분, 고리의 바탕 고리
+    val checkingBackground: Color = Color(0xFFE4ECFB),
+    val checkingContent: Color = Color(0xFF1D4AA8),
+    val checkingTrack: Color = Color(0xFFB9CBEF),
 )

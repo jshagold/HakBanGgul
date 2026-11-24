@@ -1,76 +1,39 @@
-기능: 시장 분위기
-변경: 신규 개발 (CS-002)
+기능: 설정
+변경: 버전업-001 (CS-002)
 
 ## DECISION
 
-### D-01 (전달 1) 더한 라이브러리의 버전
-단위 1. 2026-11-24 Maven 기준 최신 안정판으로 했다. Room 2.8.5(`room-runtime`, `room-ktx`, KSP `room-compiler`), Navigation Compose 2.10.2, MockWebServer는 OkHttp와 같은 5.5.1(`mockwebserver3`, 테스트만).
-Room은 따로 나온 Room 3(`androidx.room3`, 3.0.3)이 더 새 안정판이지만 고르지 않았다. 지시가 "코루틴 지원" 라이브러리를 따로 들라고 하는데 그것(`room-ktx`)은 Room 2에만 있고, Room 3은 패키지와 쓰는 법이 달라 지금 빌드 도구에서 검증된 Room 2가 "데이터를 받는 첫 기능의 바탕을 만든다"는 개요에 맞기 때문이다.
+### D-01 (전달 1) 테마에 더한 값의 이름
+단위 1. 있는 이름처럼 쓰는 곳을 이름으로 삼았다.
+- 색(AppColors): `inputDisabledBorder`, `inputDisabledBackground`, `filledButtonDisabledBackground`, `checkingBackground`, `checkingContent`(확인 중 글과 고리의 도는 부분), `checkingTrack`.
+- 글자(AppTypography): `inputLabel`, `maskedKey`, `fullKey`, `issueLink`, `issueNote`. 글자 사이 값을 넣으려고 스타일을 만드는 내부 함수에 `letterSpacing` 인자를 더했다(있는 스타일의 값은 그대로다).
+- 간격과 크기(AppDimens): 설정 화면의 위쪽 줄(`settingsTopBarPaddingHorizontal`, `settingsTopBarGap`, `backIcon`), 본문(`settingsBodyPaddingVertical`), 출처 카드(`sourceCardPadding`, `sourceCardGap`, `sourceCardHeaderGap`), 입력 덩어리(`inputGroupGap`), 입력 칸(`inputHeight`, `inputBorder`, `inputBorderError`, `inputPaddingHorizontal`), 저장된 키 칸(`savedKeyMinHeight`, `savedKeyBorder`, `savedKeyBorderError`, `savedKeyPaddingStart`, `savedKeyPaddingEnd`, `savedKeyTextPaddingVertical`, `savedKeyTextButtonGap`), 칸 아래 안내(`fieldNoticeIcon`, `fieldNoticeIconGap`, `fieldNoticeIconTop`), 발급 안내(`issueLinkPaddingVertical`, `issueNoteGap`, `issueButtonGap`), 카드 안의 버튼(`cardButtonHeight`, `saveButtonPaddingHorizontal`, `deleteButtonPaddingHorizontal`, `deleteButtonBorder`), 확인 중 표시(`checkingHeight`, `checkingPaddingHorizontal`, `checkingGap`, `checkingProgress`, `checkingProgressStroke`, `checkingProgressSlot`).
+- 표의 "출처 카드 안쪽 여백 16"은 값이 같은 `groupCardPadding`(묶음 카드)이 있지만 쓰는 곳이 달라 `sourceCardPadding`으로 따로 두었다. 한쪽을 고칠 때 다른 쪽이 따라 바뀌지 않게 하기 위해서다.
+- 표에 없는 값은 더하지 않았다. 출처 이름(17/700)은 있는 `groupName`, 안내(14/400, 1.6배)는 `smallLoose`, 모서리 10은 `shapes.button`을 쓴다.
 
-### D-02 (전달 1) 테마의 간격 값을 AppDimens에 둠
-단위 1. 지시의 "모서리와 간격" 표에서 모서리는 AppShapes에, 간격과 크기는 새 파일 `core/ui/theme/AppDimens.kt`에 두었다. 표에 없지만 화면에 필요한 값(종합 판정 카드 안의 간격 12, 안내 카드 안의 간격 16과 제목·설명 사이 6, 묶음 카드 머리 아래 12, 안내 띠의 안쪽 여백 12·14·8과 간격 8, 다른 날 안내 상자의 안쪽 여백 10·12, 눈금의 높이 18·막대 위치 4·막대 높이 10·표시 폭 4·흰 테 2·이름과의 간격 6, 맨 아래 안내의 간격 8·여백 4·링크 위아래 6, 글만 있는 버튼의 높이 44·좌우 10, 아이콘과 글 사이 8, 진행 표시와 글 사이 12)은 시안의 HTML에서 가져와 AppDimens에 더했다. 글자도 표의 "쓰는 곳"마다 이름 붙인 스타일(예: `bodyBold` 15/700, `captionBanner` 13 줄 높이 1.5배)로 AppTypography에 두었다. 화면은 값을 직접 적지 않고 `HakBanGgulTheme.colors / typography / shapes / dimens`로 가져온다. 개요의 "공용 테마"를 다른 화면도 그대로 쓰게 하기 위해서다.
-Material3에는 강조 색을 primary, 카드 색을 surface와 모든 surfaceContainer, 테두리 색을 outlineVariant, 비활성 색을 outline, 오류 테두리 색을 error로 넣었다. 메뉴처럼 Material 부품이 그리는 것도 같은 색을 쓰게 하기 위해서다.
+### D-02 (전달 1) 가려진 키를 견주는 있는 테스트
+단위 2. 있는 테스트 "R-07 네 글자 이하인 키는 모두 가린다"(키 `abcd`)는 지우지 않고 기대 값만 점 12개로 고쳤다. 테스트 지시의 R-07 네 경우(32·5·4·2글자)와 R-05의 "저장된 키 없음" 경우는 새 테스트로 더했다. 같은 내용의 R-17 테스트도 있는 경우를 줄이지 않으려고 그대로 두었다. R-03 테스트는 이름과 설명을 `SourceLabels`의 값과 견주게 고쳤다.
 
-### D-03 (전달 1) 인터셉터가 키 거절을 가를 때 본문 앞 64KB만 봄
-단위 2. ApiKeyInterceptor는 `peekBody(64KB)`로 본문을 엿본 뒤 응답을 그대로 돌려준다. 키 거절과 오류 본문은 작아 앞부분이면 충분하고, 2년치 시세 응답(수백 KB)을 메모리에 두 번 담지 않기 위해서다. 응답 본문은 부른 쪽이 처음부터 그대로 읽는다.
+### D-03 (전달 1) 키보드가 올라올 때 밀어 보기
+단위 3. 밀어 보는 본문의 아래 여백에 내비게이션 바와 키보드 중 큰 높이를 넣고(`WindowInsets.navigationBars.union(WindowInsets.ime)`), AndroidManifest의 MainActivity에 `android:windowSoftInputMode="adjustResize"`를 더했다. Android 11(API 30) 아래에서는 이 설정이 있어야 키보드 높이가 화면에 전달된다. 입력 칸을 누르면 Compose가 초점을 받은 칸을 보이는 곳으로 옮긴다(R-10). 지시의 "만들거나 고칠 것"에 없는 파일이지만, 지시한 동작에 필요한 설정 한 줄이라 고쳤다.
 
-### D-04 (전달 1) SourceCallExecutor는 요청과 본문 읽기를 IO 스레드에서 함
-단위 2. 본문 읽기는 막는 작업이라 `withContext(Dispatchers.IO)` 안에서 요청과 본문 읽기를 함께 한다. 코루틴 취소는 그대로 넘긴다.
+### D-04 (전달 1) 테두리가 있는 칸의 안쪽 여백은 테두리 안쪽에서 잼
+단위 3. 시안의 HTML은 `box-sizing: border-box`라 안쪽 여백이 테두리 안쪽에서 시작한다. Compose의 `border`는 자리를 차지하지 않으므로, 입력 칸·저장된 키 칸·키 지우기 버튼의 안쪽 여백에 테두리 굵기를 더했다. 그래서 거절된 칸(테두리 2)에서는 글이 시안처럼 1만큼 안쪽으로 들어간다.
 
-### D-05 (전달 1) 계산기의 세부
-단위 4.
-- 항목의 그날 값은 점수 기준과 상관없이 "그날이나 그 전의 가장 가까운 날의 값"으로 찾는다. DAILY_CLOSE 항목은 거래일에 늘 값이 있어 그날의 종가가 된다. 규칙에 DAILY_CLOSE 시리즈를 HighIsGood로 쓰는 항목을 더해도 계산 코드를 고치지 않게 하기 위해서다.
-- 같은 시리즈에 같은 날짜의 값이 여럿 오면 하나만 쓴다.
-- 항목이 없는 묶음이 있거나 DAILY_CLOSE 항목이 하나도 없으면(거래일을 정할 수 없음) null을 돌려준다.
-- 표시 단계를 구할 때 계산 단계를 낼 수 있는 거래일마다 처음부터 계산한다(1년치 약 260일 × 항목). 판정을 저장하지 않는다는 개요를 따른 것이고, 테스트 37개가 0.04초 안에 끝난다.
+### D-05 (전달 1) 키 전체와 가려진 키의 줄 넘김
+단위 3. 키 전체는 `LineBreak.Simple`로 그려, 빈칸이 없는 긴 키도 칸 너비에서 글자 사이로 넘어가고 잘리지 않는다. 가려진 키는 늘 17글자라 한 줄로 그리고 넘치는 일이 없게 했다.
 
-### D-06 (전달 1) 받기 한 번의 세부
-단위 5.
-- 저장소의 `fetch`가 예외를 던지면 그 출처만 `Failure(OTHER)`로 다루고 다른 출처의 받기는 이어 간다.
-- "받아 둔 값에 새로 받은 값을 덮은 것"은 `observeStored()`의 지금 값에 받은 시리즈를 시리즈 단위로 바꿔 끼운 것이다(`save`가 시리즈를 통째로 바꾸는 것과 같다).
-- 시리즈 ID가 같은 항목이 둘 있어도 출처에는 한 번만 요청한다.
+### D-06 (전달 1) "키 발급받기"의 누르는 영역
+단위 3. 누르는 영역은 글자와 그 위아래 여백 6까지다. 시안의 HTML에서는 링크가 왼쪽 덩어리의 너비만큼 늘어나지만, 글이 없는 빈 곳을 눌러 브라우저가 열리지 않게 하려고 글 크기로 두었다. 보이는 모양은 같다. 시장 분위기 화면의 "FRED API 이용 약관" 링크와 같은 방식이다.
 
-### D-07 (전달 1) 받기 관리자의 세부
-단위 5.
-- 받기 도중에 예기치 못한 예외가 나도 앱이 멈추지 않게 `Failure(OTHER)`로 다루고, 받는 중 표시는 `finally`에서 늘 거짓으로 되돌린다.
-- `onScreenShown`은 키와 받아 둔 값을 읽어야 해 앱 범위 코루틴에서 판정한다.
-- "출처의 키가 모두 AVAILABLE"은 출처가 하나 이상이고 모두 AVAILABLE일 때다.
+### D-07 (전달 1) 뒤로 가기에서 맨 위가 설정 화면인지 가리는 법
+단위 3. AppNavHost의 onBack은 `navController.currentBackStackEntry?.destination?.route`가 `settings`일 때만 `popBackStack()`을 부른다. 화면 이동의 경로는 글자 경로라 경로 이름으로 견준다.
 
-### D-08 (전달 1) 받아 둔 값을 읽지 못하면 비우고 한 번 다시 읽음
-단위 6. `observeStored`가 읽다가 예외를 받으면 두 표를 비우고(비우다 난 예외는 무시) 한 번 다시 구독한다. 다시 읽으면 빈 표가 나오므로 "받아 둔 값이 없음"을 내주고, 그 뒤 받기로 저장되는 값도 그대로 이어서 내보낸다. 비운 뒤에도 또 실패하면 빈 값을 한 번 내주고 끝낸다. 예외를 잡자마자 빈 값을 내주고 끝내면 Flow가 닫혀 새로 받은 값이 화면에 오지 않기 때문이다(R-56, R-23).
-
-### D-09 (전달 1) FRED 시리즈 요청은 동시에 보냄
-단위 6. FRED는 시리즈마다 요청 하나이고, 둘을 동시에 보낸다. 출처마다 10초 제한이 있어서다. 둘 다 실패하면 규칙의 순서에서 앞 시리즈의 오류를 출처의 오류로 쓴다.
-
-### D-10 (전달 1) 응답 읽기의 세부
-단위 6. Twelve Data 본문 맨 위에 `status`나 `values`가 있으면 종목 하나의 모양으로, 없으면 종목 이름 아래에 하나씩 담긴 모양으로 읽는다. 종목을 여럿 요청했는데 하나의 모양(예: 요청 전체의 오류 본문)이 오면 null이다. 날짜를 읽을 수 없는 값은 숫자가 아닌 값과 같게 그날을 뺀다.
-
-### D-11 (전달 1) 화면 상태는 ViewModel이 만들어질 때부터 모음
-단위 7. `uiState`는 `SharingStarted.Eagerly`로 만든다. 화면이 잠깐 가려졌다 돌아와도 마지막 상태가 바로 보이게 하기 위해서다. 글 만들기(MoodTextFormatter)는 지시의 생성자 인자를 지키려고 ViewModel 안에서 만든다. 종합 점수 줄의 " · "와 칸마다의 단계 이름도 strings.xml에 두었다. IndicatorLabels에 없는 묶음·항목 ID가 오면 예외를 던진다(규칙에 항목을 더하고 이름을 빠뜨린 것을 바로 드러내기 위해서다).
-
-### D-12 (전달 1) 화면 회전 때 onScreenShown을 부르지 않는 방법
-단위 8. ON_STOP에서 `Activity.isChangingConfigurations`를 `rememberSaveable` 값에 적어 두고, ON_START에서 그 값이 참이면 부르지 않고 지운다. targetSdk 28 이상에서는 상태 저장이 ON_STOP 뒤에 일어나 회전을 넘어 값이 남는다. 설정 화면에서 돌아올 때는 화면 이동의 수명 주기가 ON_STOP·ON_START를 거치므로 부른다(R-20, P-03).
-
-### D-13 (전달 1) 상태 표시줄의 아이콘 색과 위쪽 줄
-단위 8. 밝은 화면 하나만 두므로 MainActivity의 `enableEdgeToEdge`에 `SystemBarStyle.light`를 넘겨, 기기가 어두운 화면이어도 상태 표시줄 아이콘이 어둡게 보이게 했다. 위쪽 줄의 흰 바탕을 상태 표시줄 자리까지 칠하고, 밀어 보는 내용의 맨 아래에 내비게이션 바만큼 여백을 둔다(R-02). 가로 화면의 노치 쪽 여백도 둔다.
-
-### D-14 (전달 1) 화면의 그리는 법
-단위 8.
-- 눈금은 Canvas에 그린다. 양 끝이 둥근(5) 막대 안에 네 칸을 칠하고, 표시는 폭 4·모서리 2로 그린 뒤 둘레에 카드 색의 테 2를 둔다(시안의 `box-shadow: 0 0 0 2px #FFFFFF`). 시안처럼 표시가 막대 끝에 오면 반쯤 바깥으로 나온다.
-- 진행 표시는 Material3 CircularProgressIndicator를 테마 표의 크기(위쪽 줄 22, 받는 중 카드 28)와 굵기 2.5, 끝 둥글게, 바탕 고리와 도는 부분 사이 틈 없이 쓴다. 이 부품은 크기 안에 선 굵기까지 넣어 그리므로, 시안(24 칸 안의 반지름 9 원)보다 고리가 조금 크다.
-- 아이콘 버튼은 누르는 영역 44의 원 모양으로 만들었다(Material IconButton은 크기가 40·48로 정해져 있어 시안의 44와 다르다).
-- 메뉴는 Material의 DropdownMenu, 채운 버튼은 Material Button에 테마의 모양(10)과 색을 넣어 썼다.
-
-### D-15 (전달 1) 화면 이동의 경로 이름
-단위 8. AppNavHost는 글자 경로 `market_mood`, `settings`를 쓴다. 설정 화면을 여러 번 눌러도 하나만 쌓이게 `launchSingleTop`을 켰다.
-
-### D-17 (전달 2) 진행 표시의 크기와 받는 중 카드의 자리
-단위 1, 단위 8. 진행 표시를 고친 표의 값대로 바깥 지름과 굵기로 그린다(위쪽 줄 19·2.3, 받는 중 카드 24·2.9). Material3 CircularProgressIndicator는 정한 크기 안에 선 굵기까지 넣어 그리므로 크기에 바깥 지름을 그대로 넣었다. 위쪽 줄에서는 누르는 영역 44의 가운데에 둔다. 받는 중 카드에서는 고리를 시안의 그림 칸 크기인 28 칸(`AppDimens.progressCardSlot`)의 가운데에 두고, 글과의 간격 12는 그 칸에서 잰다. 고리만 작아지고 글의 자리는 시안(28 칸 + 간격 12)과 같게 하기 위해서다.
+### D-08 (전달 1) 미리보기의 예시 키
+단위 3. 미리보기 넷은 시안과 같은 예시 값을 쓴다. 가려진 키는 `SettingsViewModel.mask`로 만들어 화면 상태와 같은 모양이 되게 했다. "확인 중과 거절된 키"의 FRED 키는 시안에 끝 네 글자(`7b2e`)만 있어, 끝이 `7b2e`인 지어낸 키를 넣었다.
 
 ## BACKLOG
-
-### D-16 (전달 1) 근거 문구의 "200일"이 규칙의 평균 일수를 따르지 않음
-근거 문구 `evidence_price`("200일 평균보다 %1$s · 고점보다 %2$s")에 200을 글로 적어 두었다. PriceEvidence에 평균 일수가 없어 ViewModel이 규칙의 averageDays를 알 수 없기 때문이다. 나중에 규칙의 평균 일수를 바꾸면 문구가 따라가지 않는다. PriceEvidence에 평균 일수를 더하거나 IndicatorAssessment에 점수 기준을 함께 담고, 문구를 `%1$d일 평균보다`로 바꾸면 좋다. 고칠 곳: `feature/marketmood/domain`(MoodAssessment, MoodCalculator), `feature/marketmood/presentation`(MarketMoodViewModel), `strings.xml`.
+없음
 
 ## SPEC-ISSUE
 없음

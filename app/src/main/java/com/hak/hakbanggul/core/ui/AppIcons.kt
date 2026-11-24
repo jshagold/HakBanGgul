@@ -38,6 +38,33 @@ object AppIcons {
         }
     }
 
+    // 뒤로 가기: 선 굵기 2, 끝과 꺾이는 곳은 둥글게
+    val Back: ImageVector by lazy {
+        icon("Back") {
+            strokePath("M15 5l-7 7 7 7")
+        }
+    }
+
+    // 키 보기: 눈 모양
+    val Eye: ImageVector by lazy {
+        icon("Eye") {
+            eye()
+        }
+    }
+
+    // 키 가리기: 눈 모양에 빗금
+    val EyeOff: ImageVector by lazy {
+        icon("EyeOff") {
+            eye()
+            strokePath("M4 4l16 16")
+        }
+    }
+
+    private fun ImageVector.Builder.eye() {
+        strokePath("M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z")
+        strokePath(circle(12f, 12f, 3f))
+    }
+
     private fun icon(name: String, block: ImageVector.Builder.() -> Unit): ImageVector =
         ImageVector.Builder(
             name = name,

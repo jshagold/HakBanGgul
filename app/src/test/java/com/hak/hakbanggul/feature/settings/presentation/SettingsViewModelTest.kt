@@ -4,6 +4,8 @@ import com.hak.hakbanggul.R
 import com.hak.hakbanggul.core.model.DataSource
 import com.hak.hakbanggul.core.model.DataSource.FRED
 import com.hak.hakbanggul.core.model.DataSource.TWELVE_DATA
+import com.hak.hakbanggul.core.ui.KeyBadgeKind
+import com.hak.hakbanggul.core.ui.SourceLabels
 import com.hak.hakbanggul.feature.settings.domain.DeleteApiKeyUseCase
 import com.hak.hakbanggul.feature.settings.domain.FakeApiKeyCheckRepository
 import com.hak.hakbanggul.feature.settings.domain.FakeApiKeyRepository
@@ -89,15 +91,15 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `R-03 카드는 TWELVE_DATA, FRED 순서이고 이름과 설명이 맞다`() = runTest(dispatcher) {
+    fun `R-03 카드는 TWELVE_DATA, FRED 순서이고 이름과 설명은 공용 출처 문구다`() = runTest(dispatcher) {
         val vm = newViewModel()
 
         val cards = vm.uiState.value.cards
         assertEquals(listOf(TWELVE_DATA, FRED), cards.map { it.source })
-        assertEquals(R.string.source_twelve_data_name, cards[0].nameRes)
-        assertEquals(R.string.source_twelve_data_description, cards[0].descriptionRes)
-        assertEquals(R.string.source_fred_name, cards[1].nameRes)
-        assertEquals(R.string.source_fred_description, cards[1].descriptionRes)
+        cards.forEach { card ->
+            assertEquals(SourceLabels.nameRes(card.source), card.nameRes)
+            assertEquals(SourceLabels.descriptionRes(card.source), card.descriptionRes)
+        }
     }
 
     @Test
@@ -105,15 +107,23 @@ class SettingsViewModelTest {
         keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "tdkey"), invalid(FRED, "fredkey"))
         val vm = newViewModel()
 
-        assertEquals(KeyBadge.SAVED, vm.card(TWELVE_DATA).badge)
-        assertEquals(KeyBadge.INVALID, vm.card(FRED).badge)
+        assertEquals(KeyBadgeKind.SAVED, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.INVALID, vm.card(FRED).badge)
+    }
+
+    @Test
+    fun `R-05 저장된 키가 없으면 두 카드의 딱지는 키 없음이다`() = runTest(dispatcher) {
+        val vm = newViewModel()
+
+        assertEquals(KeyBadgeKind.NONE, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.NONE, vm.card(FRED).badge)
     }
 
     @Test
     fun `R-17 처음 설치하면 두 카드 모두 키 없음이다`() = runTest(dispatcher) {
         val vm = newViewModel()
 
-        assertEquals(listOf(KeyBadge.NONE, KeyBadge.NONE), vm.uiState.value.cards.map { it.badge })
+        assertEquals(listOf(KeyBadgeKind.NONE, KeyBadgeKind.NONE), vm.uiState.value.cards.map { it.badge })
     }
 
     @Test
@@ -132,7 +142,7 @@ class SettingsViewModelTest {
         val vm = newViewModel()
 
         val mode = vm.savedMode(TWELVE_DATA)
-        assertEquals("••••••••••••5678", mode.displayKey)
+        assertEquals("•••••••••••• 5678", mode.displayKey)
         assertFalse(mode.revealed)
     }
 
@@ -141,7 +151,41 @@ class SettingsViewModelTest {
         keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "abcd"))
         val vm = newViewModel()
 
-        assertEquals("••••", vm.savedMode(TWELVE_DATA).displayKey)
+        assertEquals("••••••••••••", vm.savedMode(TWELVE_DATA).displayKey)
+    }
+
+    @Test
+    fun `R-07 32글자 키는 점 12개, 빈칸, 끝 네 글자로 가린다`() = runTest(dispatcher) {
+        keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "9c41d7e2ab5f4c08b3d16e7a20f83f9a"))
+        val vm = newViewModel()
+
+        val mode = vm.savedMode(TWELVE_DATA)
+        assertEquals("•••••••••••• 3f9a", mode.displayKey)
+        assertFalse(mode.revealed)
+    }
+
+    @Test
+    fun `R-07 5글자 키는 점 12개, 빈칸, 끝 네 글자로 가린다`() = runTest(dispatcher) {
+        keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "abcde"))
+        val vm = newViewModel()
+
+        assertEquals("•••••••••••• bcde", vm.savedMode(TWELVE_DATA).displayKey)
+    }
+
+    @Test
+    fun `R-07 4글자 키는 점 12개만으로 가린다`() = runTest(dispatcher) {
+        keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "abcd"))
+        val vm = newViewModel()
+
+        assertEquals("••••••••••••", vm.savedMode(TWELVE_DATA).displayKey)
+    }
+
+    @Test
+    fun `R-07 2글자 키는 점 12개만으로 가린다`() = runTest(dispatcher) {
+        keyRepository.keys.value = mapOf(saved(TWELVE_DATA, "ab"))
+        val vm = newViewModel()
+
+        assertEquals("••••••••••••", vm.savedMode(TWELVE_DATA).displayKey)
     }
 
     @Test
@@ -164,7 +208,7 @@ class SettingsViewModelTest {
 
         vm.onRevealToggle(TWELVE_DATA)
 
-        assertEquals("••••••••••••5678", vm.savedMode(TWELVE_DATA).displayKey)
+        assertEquals("•••••••••••• 5678", vm.savedMode(TWELVE_DATA).displayKey)
     }
 
     @Test
@@ -175,7 +219,7 @@ class SettingsViewModelTest {
 
         vm.onScreenHidden()
 
-        assertEquals("••••••••••••5678", vm.savedMode(TWELVE_DATA).displayKey)
+        assertEquals("•••••••••••• 5678", vm.savedMode(TWELVE_DATA).displayKey)
     }
 
     @Test
@@ -195,7 +239,7 @@ class SettingsViewModelTest {
 
         vm.saveWithResult(TWELVE_DATA, "badkey123", KeyCheckResult.REJECTED)
 
-        assertEquals(KeyBadge.INVALID, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.INVALID, vm.card(TWELVE_DATA).badge)
         assertEquals(R.string.key_message_rejected, vm.input(TWELVE_DATA).messageRes)
         assertFalse(ObserveApiKeysUseCase(keyRepository)().first().containsKey(TWELVE_DATA))
     }
@@ -207,9 +251,9 @@ class SettingsViewModelTest {
 
         val card = vm.card(TWELVE_DATA)
         val mode = card.mode as CardMode.Saved
-        assertEquals(KeyBadge.INVALID, card.badge)
+        assertEquals(KeyBadgeKind.INVALID, card.badge)
         assertTrue(mode.showRejectedNotice)
-        assertEquals("••••••••••••5678", mode.displayKey)
+        assertEquals("•••••••••••• 5678", mode.displayKey)
     }
 
     @Test
@@ -247,7 +291,7 @@ class SettingsViewModelTest {
 
         val input = vm.input(TWELVE_DATA)
         assertEquals("newkey123", input.text)
-        assertEquals(KeyBadge.INVALID, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.INVALID, vm.card(TWELVE_DATA).badge)
         assertEquals(R.string.key_message_rejected, input.messageRes)
     }
 
@@ -271,7 +315,7 @@ class SettingsViewModelTest {
         val input = vm.input(TWELVE_DATA)
         assertEquals("key1", input.text)
         assertEquals(R.string.key_message_no_connection, input.messageRes)
-        assertEquals(KeyBadge.NONE, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.NONE, vm.card(TWELVE_DATA).badge)
         assertFalse(input.errorBorder)
     }
 
@@ -282,7 +326,7 @@ class SettingsViewModelTest {
         vm.saveWithResult(TWELVE_DATA, "key1", KeyCheckResult.UNAVAILABLE)
 
         assertEquals(R.string.key_message_unavailable, vm.input(TWELVE_DATA).messageRes)
-        assertEquals(KeyBadge.NONE, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.NONE, vm.card(TWELVE_DATA).badge)
     }
 
     @Test
@@ -295,7 +339,7 @@ class SettingsViewModelTest {
         val input = vm.input(TWELVE_DATA)
         assertEquals("key1", input.text)
         assertEquals(R.string.key_message_store_failed, input.messageRes)
-        assertEquals(KeyBadge.NONE, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.NONE, vm.card(TWELVE_DATA).badge)
     }
 
     @Test
@@ -333,7 +377,7 @@ class SettingsViewModelTest {
         vm.onDeleteConfirm(TWELVE_DATA)
 
         assertTrue(vm.card(TWELVE_DATA).mode is CardMode.Input)
-        assertEquals(KeyBadge.NONE, vm.card(TWELVE_DATA).badge)
+        assertEquals(KeyBadgeKind.NONE, vm.card(TWELVE_DATA).badge)
     }
 
     @Test
@@ -344,7 +388,7 @@ class SettingsViewModelTest {
         vm.onDeleteConfirm(TWELVE_DATA)
 
         assertTrue(vm.card(FRED).mode is CardMode.Saved)
-        assertEquals(KeyBadge.SAVED, vm.card(FRED).badge)
+        assertEquals(KeyBadgeKind.SAVED, vm.card(FRED).badge)
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.hak.hakbanggul.feature.settings.presentation
 
 import androidx.annotation.StringRes
 import com.hak.hakbanggul.core.model.DataSource
+import com.hak.hakbanggul.core.ui.KeyBadgeKind
 
 data class SettingsUiState(
     val cards: List<SourceCardUiState>,
@@ -11,22 +12,10 @@ data class SourceCardUiState(
     val source: DataSource,
     @param:StringRes val nameRes: Int,
     @param:StringRes val descriptionRes: Int,
-    val badge: KeyBadge,
+    val badge: KeyBadgeKind,
     val issueUrl: String,
     val mode: CardMode,
 )
-
-// 카드의 상태 딱지
-enum class KeyBadge {
-    // 키 없음
-    NONE,
-
-    // 저장됨
-    SAVED,
-
-    // 틀림
-    INVALID,
-}
 
 sealed interface CardMode {
     // 저장된 키가 없을 때: 입력 칸과 저장 버튼

@@ -45,11 +45,29 @@ data class AppTypography(
     val footerLink: TextStyle = style(12, FontWeight.Medium),
     // 눈금 아래의 단계 이름
     val gaugeLabel: TextStyle = style(11, FontWeight.Normal),
+
+    // 설정 화면
+    // 입력 칸의 이름표("API 키")
+    val inputLabel: TextStyle = style(13, FontWeight.Medium),
+    // 가려진 키
+    val maskedKey: TextStyle = style(15, FontWeight.Normal, letterSpacing = 1.sp),
+    // 키 전체
+    val fullKey: TextStyle = style(15, FontWeight.Normal, lineHeight = 1.4.em),
+    // "키 발급받기"
+    val issueLink: TextStyle = style(14, FontWeight.Medium),
+    // "무료, 카드 등록 없음"
+    val issueNote: TextStyle = style(12, FontWeight.Normal),
 )
 
-private fun style(size: Int, weight: FontWeight, lineHeight: TextUnit = TextUnit.Unspecified) = TextStyle(
+private fun style(
+    size: Int,
+    weight: FontWeight,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    letterSpacing: TextUnit = TextUnit.Unspecified,
+) = TextStyle(
     fontFamily = FontFamily.Default,
     fontSize = size.sp,
     fontWeight = weight,
     lineHeight = lineHeight,
+    letterSpacing = letterSpacing,
 )

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.core.model.DataSource
+import com.hak.hakbanggul.core.ui.KeyBadgeKind
+import com.hak.hakbanggul.core.ui.SourceLabels
 import com.hak.hakbanggul.feature.settings.domain.ApiKeyStatus
 import com.hak.hakbanggul.feature.settings.domain.DeleteApiKeyUseCase
 import com.hak.hakbanggul.feature.settings.domain.KeyCheckManager
@@ -78,11 +80,11 @@ class SettingsViewModel @Inject constructor(
         isRevealed: Boolean,
     ): SourceCardUiState {
         val info = SourceCardInfo.of(source)
-        val badge: KeyBadge
+        val badge: KeyBadgeKind
         val mode: CardMode
         if (stored != null) {
             val invalid = stored.status == ApiKeyStatus.INVALID
-            badge = if (invalid) KeyBadge.INVALID else KeyBadge.SAVED
+            badge = if (invalid) KeyBadgeKind.INVALID else KeyBadgeKind.SAVED
             mode = CardMode.Saved(
                 displayKey = if (isRevealed) stored.key else mask(stored.key),
                 revealed = isRevealed,
@@ -93,7 +95,7 @@ class SettingsViewModel @Inject constructor(
             val failure = (check as? KeyCheckState.Failed)?.outcome
             val rejected = failure == SaveKeyOutcome.REJECTED
             val text = inputTextOf(input, check)
-            badge = if (rejected) KeyBadge.INVALID else KeyBadge.NONE
+            badge = if (rejected) KeyBadgeKind.INVALID else KeyBadgeKind.NONE
             mode = CardMode.Input(
                 text = text,
                 inputEnabled = !checking,
@@ -105,8 +107,8 @@ class SettingsViewModel @Inject constructor(
         }
         return SourceCardUiState(
             source = source,
-            nameRes = info.nameRes,
-            descriptionRes = info.descriptionRes,
+            nameRes = SourceLabels.nameRes(source),
+            descriptionRes = SourceLabels.descriptionRes(source),
             badge = badge,
             issueUrl = info.issueUrl,
             mode = mode,
@@ -128,14 +130,14 @@ class SettingsViewModel @Inject constructor(
     companion object {
         private const val STOP_TIMEOUT_MILLIS = 5_000L
         private const val MASK_CHAR = '•'
+        private const val MASK_LENGTH = 12
         private const val VISIBLE_TAIL = 4
 
-        // 끝 네 글자만 두고 나머지를 가린다. 네 글자 이하면 모두 가린다.
-        fun mask(key: String): String =
-            if (key.length <= VISIBLE_TAIL) {
-                MASK_CHAR.toString().repeat(key.length)
-            } else {
-                MASK_CHAR.toString().repeat(key.length - VISIBLE_TAIL) + key.takeLast(VISIBLE_TAIL)
-            }
+        // 키의 길이와 상관없이 점 12개, 빈칸 하나, 끝 네 글자로 가린다. 네 글자 이하면 점 12개만 둔다.
+        // 키의 길이만큼 점을 찍으면 긴 키가 칸을 넘치기 때문이다.
+        fun mask(key: String): String {
+            val dots = MASK_CHAR.toString().repeat(MASK_LENGTH)
+            return if (key.length <= VISIBLE_TAIL) dots else "$dots ${key.takeLast(VISIBLE_TAIL)}"
+        }
     }
 }

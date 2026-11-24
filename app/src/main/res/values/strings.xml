@@ -44,6 +44,7 @@
     <!-- 시장 분위기: 위쪽 줄 -->
     <string name="action_refresh">새로 고침</string>
     <string name="action_menu">메뉴</string>
+    <string name="action_back">뒤로 가기</string>
     <string name="menu_settings">설정</string>
 
     <!-- 시장 분위기: 단계 이름 (장세, 종합 점수, 눈금) -->
