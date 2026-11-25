@@ -14,11 +14,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import okhttp3.ResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -63,11 +67,16 @@ class MarketDataRepositoryImplTest {
     private inner class FakeSyncStampDao : SyncStampDao {
         val stamps = MutableStateFlow<Map<String, Long>>(emptyMap())
         var failOnDeleteAll = false
+        var failOnObserve = false
+        var failOnUpsert = false
         var deleteAllCalls = 0
 
-        override fun observe(name: String): Flow<Long?> = stamps.map { it[name] }
+        // Room처럼 어느 이름의 행이 바뀌든 다시 내보낸다(같은 값이어도).
+        override fun observe(name: String): Flow<Long?> =
+            if (failOnObserve) flow { throw IllegalStateException("읽기 실패") } else stamps.map { it[name] }
 
         override suspend fun upsert(stamp: SyncStampEntity) {
+            if (failOnUpsert) throw IllegalStateException("쓰기 실패")
             calls += "upsert" to inTransaction
             stamps.update { it + (stamp.name to stamp.timestampMillis) }
         }
@@ -195,5 +204,79 @@ class MarketDataRepositoryImplTest {
         val stored = repository.observeStored().first()
 
         assertEquals(StoredMarketData(emptyMap(), null), stored)
+    }
+
+    // R-62 마지막으로 받기를 시작한 때
+
+    private val t0100 = Instant.parse("2026-11-24T01:00:00Z")
+    private val t0105 = Instant.parse("2026-11-24T01:05:00Z")
+    private val spy = mapOf("SPY" to listOf(value("2026-11-23", 102.0)))
+
+    @Test
+    fun `R-62 적은 것이 없으면 null`() = runTest {
+        assertNull(repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 적은 때를 읽고 started 행에 UTC 밀리초로 들어 있다`() = runTest {
+        repository.saveLastStartedAt(t0100)
+
+        assertEquals(t0100, repository.getLastStartedAt())
+        assertEquals(t0100.toEpochMilli(), stampDao.stamps.value["market_mood_refresh_started"])
+    }
+
+    @Test
+    fun `R-62 다시 적으면 바뀐다`() = runTest {
+        repository.saveLastStartedAt(t0100)
+        repository.saveLastStartedAt(t0105)
+
+        assertEquals(t0105, repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 시작한 때를 적어도 성공한 때는 그대로다`() = runTest {
+        repository.save(spy, Instant.parse("2026-11-24T00:00:00Z"))
+        repository.saveLastStartedAt(t0100)
+
+        assertEquals(Instant.parse("2026-11-24T00:00:00Z"), repository.observeStored().first().lastSuccessAt)
+        assertEquals(t0100, repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 저장해도 시작한 때는 그대로다`() = runTest {
+        repository.saveLastStartedAt(t0100)
+        repository.save(spy, Instant.parse("2026-11-24T02:00:00Z"))
+
+        assertEquals(t0100, repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 시작한 때를 적어도 observeStored가 더 내보내지 않는다`() = runTest {
+        repository.save(spy, Instant.parse("2026-11-24T00:00:00Z"))
+        val received = mutableListOf<StoredMarketData>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repository.observeStored().toList(received) }
+        assertEquals(1, received.size)
+
+        repository.saveLastStartedAt(t0100)
+
+        assertEquals(1, received.size)
+    }
+
+    @Test
+    fun `R-62 읽다가 예외가 나면 예외 없이 null`() = runTest {
+        stampDao.failOnObserve = true
+
+        assertNull(repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 적다가 예외가 나면 IOException이 난다`() = runTest {
+        stampDao.failOnUpsert = true
+        try {
+            repository.saveLastStartedAt(t0100)
+            fail("IOException이 나야 한다")
+        } catch (e: IOException) {
+            // 기대한 대로
+        }
     }
 }

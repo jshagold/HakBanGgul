@@ -204,4 +204,41 @@ class RefreshMarketDataUseCaseTest {
         assertEquals(RefreshOutcome.Failure(RefreshFailure.NO_CONNECTION), useCase())
         assertTrue(repository.saveCalls.isEmpty())
     }
+
+    // R-62 받기를 시작할 때 시작한 때를 적음
+
+    private val startedAt = Instant.parse("2026-11-24T01:00:00Z")
+
+    @Test
+    fun `R-62 받기를 시작하면 첫 fetch보다 먼저 받는 때를 한 번 적는다`() = runTest {
+        val outcome = useCase()
+
+        assertEquals(RefreshOutcome.Success, outcome)
+        assertEquals(listOf(startedAt), repository.saveLastStartedAtCalls)
+        assertEquals("saveLastStartedAt", repository.callOrder.first())
+        assertEquals(1, repository.callOrder.count { it == "saveLastStartedAt" })
+    }
+
+    @Test
+    fun `R-62 받기가 실패해도 적힌 시작한 때가 남는다`() = runTest {
+        answer(twelveData = failure(DataFetchError.NO_CONNECTION), fred = failure(DataFetchError.NO_CONNECTION))
+
+        val outcome = useCase()
+
+        assertEquals(RefreshOutcome.Failure(RefreshFailure.NO_CONNECTION), outcome)
+        assertEquals(startedAt, repository.getLastStartedAt())
+    }
+
+    @Test
+    fun `R-62 시작한 때를 적지 못해도 받기를 이어 가고 Success다`() = runTest {
+        repository.failOnSaveLastStartedAt = true
+
+        val outcome = useCase()
+
+        assertEquals(listOf(TWELVE_DATA, FRED), repository.fetchCalls.map { it.source }.sortedBy { it.ordinal })
+        assertEquals(RefreshOutcome.Success, outcome)
+        val save = repository.saveCalls.single()
+        assertEquals((STOCKS + fredIds).toSet(), save.values.keys)
+        assertEquals(startedAt, save.succeededAt)
+    }
 }

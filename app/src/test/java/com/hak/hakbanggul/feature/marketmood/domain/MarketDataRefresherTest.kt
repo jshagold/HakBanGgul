@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -265,5 +266,316 @@ class MarketDataRefresherTest {
         advanceUntilIdle()
 
         assertFalse(started)
+    }
+
+    // 받아 달라는 청(request)
+
+    private val fetchCount get() = repository.fetchCalls.size
+
+    // 테스트가 풀어 줄 때까지 fetch가 돌아오지 않게 한다. answer가 null이면 데이터 A를 돌려준다.
+    private fun holdFetch(answer: FetchResult? = null): CompletableDeferred<Unit> {
+        val wait = CompletableDeferred<Unit>()
+        val remote = repository.remote
+        repository.fetchAnswer = { _, series, _ ->
+            wait.await()
+            answer ?: FetchResult.Success(remote.build(series.map { it.seriesId }))
+        }
+        return wait
+    }
+
+    private suspend fun TestScope.requestOn(refresher: MarketDataRefresher, condition: RefreshCondition): RefreshRequestResult {
+        val result = async { refresher.request(condition) }
+        advanceUntilIdle()
+        return result.await()
+    }
+
+    private suspend fun TestScope.requestWith(condition: RefreshCondition): RefreshRequestResult {
+        val refresher = newRefresher()
+        runCurrent()
+        return requestOn(refresher, condition)
+    }
+
+    // R-59 청으로 받기가 시작되고 끝난 뒤에 돌아옴
+
+    @Test
+    fun `R-59 청하면 받기가 시작되고 끝난 뒤에 REFRESHED로 돌아온다`() = runTest {
+        val wait = holdFetch()
+        val refresher = newRefresher()
+        runCurrent()
+
+        val result = async {
+            val r = refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE)
+            Triple(r, refresher.state.value, repository.stored.value)
+        }
+        runCurrent()
+
+        assertFalse(result.isCompleted)
+        assertTrue(refresher.state.value.isRefreshing)
+        assertEquals(2, fetchCount)
+
+        wait.complete(Unit)
+        advanceUntilIdle()
+        val (r, stateAtReturn, storedAtReturn) = result.await()
+        assertEquals(RefreshRequestResult.REFRESHED, r)
+        assertFalse(stateAtReturn.isRefreshing)
+        assertNull(stateAtReturn.lastFailure)
+        assertEquals(6, storedAtReturn.values.size)
+        assertEquals(now, storedAtReturn.lastSuccessAt)
+    }
+
+    @Test
+    fun `R-59 받기가 실패해도 예외 없이 REFRESHED이고 lastFailure가 반영되어 있다`() = runTest {
+        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
+        val refresher = newRefresher()
+        runCurrent()
+
+        val result = async {
+            refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) to refresher.state.value
+        }
+        advanceUntilIdle()
+
+        val (r, stateAtReturn) = result.await()
+        assertEquals(RefreshRequestResult.REFRESHED, r)
+        assertFalse(stateAtReturn.isRefreshing)
+        assertEquals(RefreshFailure.NO_CONNECTION, stateAtReturn.lastFailure)
+    }
+
+    // R-59 이미 받는 중이면 겹쳐 시작하지 않고 기다림
+
+    @Test
+    fun `R-59 refresh로 받는 중에 청하면 기다렸다가 JOINED이고 겹쳐 받지 않는다`() = runTest {
+        val wait = holdFetch()
+        val refresher = newRefresher()
+        refresher.refresh()
+        runCurrent()
+        assertEquals(2, fetchCount)
+
+        val result = async { refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) }
+        runCurrent()
+        assertFalse(result.isCompleted)
+        assertEquals(2, fetchCount)
+
+        wait.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(RefreshRequestResult.JOINED, result.await())
+        assertEquals(2, fetchCount)
+    }
+
+    @Test
+    fun `R-59 받는 중이면 WHEN_NOT_RECENTLY_STARTED도 조건을 따지지 않고 JOINED`() = runTest {
+        val wait = holdFetch()
+        val refresher = newRefresher()
+        refresher.refresh()
+        runCurrent()
+        assertEquals(now, repository.lastStartedAt)
+
+        val result = async { refresher.request(RefreshCondition.WHEN_NOT_RECENTLY_STARTED) }
+        runCurrent()
+        wait.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(RefreshRequestResult.JOINED, result.await())
+        assertEquals(2, fetchCount)
+    }
+
+    @Test
+    fun `R-59 청이 둘 한꺼번에 오면 받기는 하나이고 REFRESHED 하나 JOINED 하나다`() = runTest {
+        val wait = holdFetch()
+        val refresher = newRefresher()
+        runCurrent()
+
+        val first = async { refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) }
+        val second = async { refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) }
+        runCurrent()
+        wait.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(2, fetchCount)
+        assertEquals(
+            listOf(RefreshRequestResult.REFRESHED, RefreshRequestResult.JOINED).sorted(),
+            listOf(first.await(), second.await()).sorted(),
+        )
+    }
+
+    // R-59 새로 만든 받기 관리자
+
+    @Test
+    fun `R-59 새로 만든 받기 관리자는 아무것도 하지 않으면 받지 않는다`() = runTest {
+        newRefresher()
+        advanceUntilIdle()
+
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-59 새로 만든 받기 관리자에 청하면 받는다`() = runTest {
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_KEYS_AVAILABLE))
+        assertEquals(6, repository.stored.value.values.size)
+    }
+
+    // R-59 청한 쪽이 기다리기를 그만둬도 끝까지 받아 저장
+
+    @Test
+    fun `R-59 청한 코루틴이 취소되어도 받기는 끝까지 이어져 저장된다`() = runTest {
+        val wait = holdFetch()
+        val refresher = newRefresher()
+        runCurrent()
+        val caller = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
+        caller.launch { refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) }
+        runCurrent()
+
+        caller.cancel()
+        wait.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.saveCalls.size)
+        assertEquals(6, repository.stored.value.values.size)
+        assertFalse(refresher.state.value.isRefreshing)
+    }
+
+    // R-60 WHEN_STALE
+
+    @Test
+    fun `R-60 WHEN_STALE 받아 둔 값이 없으면 받는다`() = runTest {
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-60 WHEN_STALE 성공한 지 6시간 1분이면 받는다`() = runTest {
+        repository.setStored(dataA(), now.minus(Duration.ofHours(6).plusMinutes(1)))
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-60 WHEN_STALE 성공한 지 꼭 6시간이면 받지 않는다`() = runTest {
+        repository.setStored(dataA(), now.minus(Duration.ofHours(6)))
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_STALE))
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_STALE 성공한 때가 지금보다 뒤면 받는다`() = runTest {
+        repository.setStored(dataA(), now.plus(Duration.ofMinutes(5)))
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-60 WHEN_STALE 판정을 낼 수 없으면 1시간 전에 성공했어도 받는다`() = runTest {
+        repository.setStored(dataA().removeSeries("SPY"), now.minus(Duration.ofHours(1)))
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-60 WHEN_STALE FRED의 키가 없으면 받지 않는다`() = runTest {
+        setKeys(AVAILABLE, MISSING)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_STALE))
+        assertEquals(0, fetchCount)
+    }
+
+    // R-60 WHEN_KEYS_AVAILABLE
+
+    @Test
+    fun `R-60 WHEN_KEYS_AVAILABLE 최근에 성공하고 시작했어도 받는다`() = runTest {
+        repository.setStored(dataA(), now.minus(Duration.ofMinutes(1)))
+        repository.lastStartedAt = now.minusSeconds(10)
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_KEYS_AVAILABLE))
+    }
+
+    @Test
+    fun `R-60 WHEN_KEYS_AVAILABLE FRED의 키가 없으면 받지 않는다`() = runTest {
+        setKeys(AVAILABLE, MISSING)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_KEYS_AVAILABLE))
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_KEYS_AVAILABLE Twelve Data의 키가 틀림이면 받지 않는다`() = runTest {
+        setKeys(INVALID, AVAILABLE)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_KEYS_AVAILABLE))
+        assertEquals(0, fetchCount)
+    }
+
+    // R-60 WHEN_NOT_RECENTLY_STARTED
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 시작한 지 1분 1초면 받는다`() = runTest {
+        repository.lastStartedAt = now.minusSeconds(61)
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 시작한 지 꼭 1분이면 받지 않는다`() = runTest {
+        repository.lastStartedAt = now.minusSeconds(60)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 시작한 지 59초면 받지 않는다`() = runTest {
+        repository.lastStartedAt = now.minusSeconds(59)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED Twelve Data의 키가 없으면 받지 않는다`() = runTest {
+        repository.lastStartedAt = now.minus(Duration.ofHours(2))
+        setKeys(MISSING, AVAILABLE)
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+        assertEquals(0, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 청으로 시작한 받기에서 1분을 넘어야 다시 받는다`() = runTest {
+        val refresher = newRefresher()
+        runCurrent()
+
+        val first = requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
+        clock.now = now.plusSeconds(30)
+        val second = requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
+        clock.now = now.plusSeconds(61)
+        val third = requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
+
+        assertEquals(
+            listOf(RefreshRequestResult.REFRESHED, RefreshRequestResult.SKIPPED, RefreshRequestResult.REFRESHED),
+            listOf(first, second, third),
+        )
+        assertEquals(4, fetchCount)
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 화면에서 시작한 받기도 따진다`() = runTest {
+        val refresher = newRefresher()
+        refresher.refresh()
+        advanceUntilIdle()
+
+        clock.now = now.plusSeconds(30)
+
+        assertEquals(RefreshRequestResult.SKIPPED, requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+    }
+
+    @Test
+    fun `R-60 WHEN_NOT_RECENTLY_STARTED 받기 관리자를 새로 만들어도 시작한 때를 따진다`() = runTest {
+        requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
+        val restarted = newRefresher()
+        runCurrent()
+
+        clock.now = now.plusSeconds(30)
+
+        assertEquals(RefreshRequestResult.SKIPPED, requestOn(restarted, RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+    }
+
+    // R-62 시작한 때가 없거나 지금보다 뒤면 넘은 것으로 봄
+
+    @Test
+    fun `R-62 시작한 때가 없으면 WHEN_NOT_RECENTLY_STARTED로 받는다`() = runTest {
+        assertNull(repository.getLastStartedAt())
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+    }
+
+    @Test
+    fun `R-62 시작한 때가 지금보다 뒤면 WHEN_NOT_RECENTLY_STARTED로 받는다`() = runTest {
+        repository.lastStartedAt = now.plus(Duration.ofMinutes(10))
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
     }
 }

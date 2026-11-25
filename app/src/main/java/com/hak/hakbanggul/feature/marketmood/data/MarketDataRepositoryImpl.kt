@@ -20,6 +20,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.retryWhen
 import java.io.IOException
 import java.time.Instant
@@ -40,6 +42,7 @@ class MarketDataRepositoryImpl @Inject constructor(
 
     // 받아 둔 값이 읽히지 않으면 앱을 멈추지 않고 두 표를 비운 뒤 다시 읽는다.
     // 다시 읽어도 안 되면 받아 둔 값이 없는 것으로 내준다.
+    // Room은 sync_stamps의 어느 행이 바뀌든 다시 내보내므로, 시작한 때를 적어도 같은 값이 다시 나가지 않게 거른다.
     override fun observeStored(): Flow<StoredMarketData> =
         combine(dailyValueDao.observeAll(), syncStampDao.observe(REFRESH_STAMP)) { rows, stamp ->
             StoredMarketData(
@@ -49,6 +52,7 @@ class MarketDataRepositoryImpl @Inject constructor(
                 lastSuccessAt = stamp?.let { Instant.ofEpochMilli(it) },
             )
         }
+            .distinctUntilChanged()
             .retryWhen { cause, attempt ->
                 if (cause is CancellationException) return@retryWhen false
                 clearQuietly()
@@ -116,6 +120,29 @@ class MarketDataRepositoryImpl @Inject constructor(
         }
     }
 
+    // 성공한 때와 다른 행에 적는다. 읽지 못하면 없는 것으로 본다.
+    override suspend fun getLastStartedAt(): Instant? =
+        try {
+            syncStampDao.observe(REFRESH_STARTED_STAMP).first()?.let { Instant.ofEpochMilli(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
+    // 받기를 시작할 때 적는 것이라 save의 트랜잭션과 묶지 않는다.
+    override suspend fun saveLastStartedAt(startedAt: Instant) {
+        try {
+            syncStampDao.upsert(SyncStampEntity(REFRESH_STARTED_STAMP, startedAt.toEpochMilli()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            throw e
+        } catch (e: Exception) {
+            throw IOException("받기를 시작한 때를 적지 못함", e)
+        }
+    }
+
     // 비우다가 난 예외는 무시한다.
     private suspend fun clearQuietly() {
         try {
@@ -137,6 +164,9 @@ class MarketDataRepositoryImpl @Inject constructor(
     private companion object {
         // 받기에 마지막으로 성공한 때의 이름
         const val REFRESH_STAMP = "market_mood_refresh"
+
+        // 마지막으로 받기를 시작한 때의 이름
+        const val REFRESH_STARTED_STAMP = "market_mood_refresh_started"
 
         // 표를 비운 뒤 다시 읽는 횟수
         const val MAX_READ_RETRIES = 1L

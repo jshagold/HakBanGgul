@@ -18,6 +18,7 @@ import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 
 // 받기 한 번. 출처마다 동시에 받아, 성공한 출처의 값을 한 번에 저장한다.
+// 시장 분위기 안에서만 쓴다. 다른 기능은 이것을 직접 쓰지 않고 RequestRefreshUseCase를 쓴다.
 class RefreshMarketDataUseCase @Inject constructor(
     private val marketDataRepository: MarketDataRepository,
     private val rulesRepository: MoodRulesRepository,
@@ -26,6 +27,14 @@ class RefreshMarketDataUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(): RefreshOutcome {
         val now = clock.instant()
+        // 출처에 요청을 보내기 전에 시작한 때를 적는다. 적지 못해도 받기는 이어 간다.
+        try {
+            marketDataRepository.saveLastStartedAt(now)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 무시
+        }
         val rules = rulesRepository.observe().first()
         val seriesBySource = rules.groups
             .flatMap { group -> group.indicators.map { it.series } }

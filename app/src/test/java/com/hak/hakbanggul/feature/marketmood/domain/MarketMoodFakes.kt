@@ -35,6 +35,7 @@ class FakeMarketDataRepository(
 
     override suspend fun fetch(source: DataSource, series: List<IndicatorSeries>, startDate: LocalDate): FetchResult {
         fetchCalls += FetchCall(source, series.map { it.seriesId }, startDate)
+        callOrder += "fetch"
         return fetchAnswer(source, series, startDate)
     }
 
@@ -44,6 +45,23 @@ class FakeMarketDataRepository(
         stored.update { current ->
             StoredMarketData(current.values + values, succeededAt ?: current.lastSuccessAt)
         }
+    }
+
+    // 마지막으로 받기를 시작한 때. 테스트가 직접 정할 수도 있다.
+    var lastStartedAt: Instant? = null
+    val saveLastStartedAtCalls = mutableListOf<Instant>()
+    var failOnSaveLastStartedAt = false
+
+    // fetch와 saveLastStartedAt이 불린 차례
+    val callOrder = mutableListOf<String>()
+
+    override suspend fun getLastStartedAt(): Instant? = lastStartedAt
+
+    override suspend fun saveLastStartedAt(startedAt: Instant) {
+        callOrder += "saveLastStartedAt"
+        saveLastStartedAtCalls += startedAt
+        if (failOnSaveLastStartedAt) throw IOException("시작한 때 저장 실패")
+        lastStartedAt = startedAt
     }
 
     fun setStored(builder: MoodTestData.Builder?, lastSuccessAt: Instant?) {

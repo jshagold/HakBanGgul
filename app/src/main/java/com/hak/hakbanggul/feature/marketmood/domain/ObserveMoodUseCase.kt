@@ -6,6 +6,8 @@ import javax.inject.Inject
 
 // 규칙과 받아 둔 값을 계산기에 넣어 판정을 내준다. 낼 수 없으면 null이다.
 // 받아 둔 값이 바뀌면 다시 계산해 내보낸다.
+// 다른 기능에 내놓는 것은 ObserveMoodUseCase, RequestRefreshUseCase, ObserveRefreshStateUseCase와 그 모델뿐이다.
+// MarketDataRefresher, RefreshMarketDataUseCase, MarketDataRepository는 다른 기능이 직접 쓰지 않는다.
 class ObserveMoodUseCase @Inject constructor(
     private val rulesRepository: MoodRulesRepository,
     private val marketDataRepository: MarketDataRepository,
