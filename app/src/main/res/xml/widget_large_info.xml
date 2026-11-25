@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 큰 위젯: 가로 2칸 세로 2칸(Android 12 이상은 칸 수, 그보다 낮으면 최소 크기). 크기를 바꿀 수 없고,
+     시스템이 정한 주기로 다시 그리지 않는다. 홈 화면에만 놓는다. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:previewLayout="@layout/widget_large_preview"
+    android:resizeMode="none"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

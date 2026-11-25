@@ -104,4 +104,12 @@
     <string name="banner_stale_title">새 값을 받지 못했습니다</string>
     <string name="banner_no_connection_message">연결을 확인해 주세요. 받아 둔 값으로 보여 줍니다.</string>
     <string name="banner_other_message">잠시 뒤 다시 해 주세요. 받아 둔 값으로 보여 줍니다.</string>
+
+    <!-- 홈 화면 위젯 -->
+    <string name="widget_small_name">장세 (작게)</string>
+    <string name="widget_large_name">장세 (크게)</string>
+    <string name="widget_as_of">%1$d월 %2$d일 종가</string>
+    <string name="widget_open_app">눌러서 앱 열기</string>
+    <string name="widget_refreshing">받는 중</string>
+    <string name="widget_preview_as_of">11월 23일 종가</string>
 </resources>

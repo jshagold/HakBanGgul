@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 화면 위젯의 진행 표시(큰 위젯). 진행 표시 그림을 그림 칸 크기(AppDimens.widgetLargeProgress)로 놓고 돌린다.
+     Glance의 기본 진행 표시는 바탕 고리와 선 굵기를 정할 수 없어 이것을 끼운다. -->
+<ProgressBar xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="18dp"
+    android:layout_height="18dp"
+    android:minWidth="18dp"
+    android:maxWidth="18dp"
+    android:minHeight="18dp"
+    android:maxHeight="18dp"
+    android:contentDescription="@string/widget_refreshing"
+    android:indeterminate="true"
+    android:indeterminateDrawable="@drawable/widget_progress_spin"
+    android:indeterminateDuration="1000" />

@@ -1,5 +1,6 @@
 package com.hak.hakbanggul.core.ui
 
+import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
@@ -16,4 +17,10 @@ data class UiText(
 fun UiText.asString(): String {
     val resolved = args.map { arg -> if (arg is UiText) arg.asString() else arg }
     return stringResource(resId, *resolved.toTypedArray())
+}
+
+// Compose 밖(Glance 위젯)에서 글자로 푼다. args 안의 UiText를 먼저 풀어 끼운다.
+fun UiText.asString(context: Context): String {
+    val resolved = args.map { arg -> if (arg is UiText) arg.asString(context) else arg }
+    return context.getString(resId, *resolved.toTypedArray())
 }

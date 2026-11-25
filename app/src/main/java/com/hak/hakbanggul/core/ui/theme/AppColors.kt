@@ -64,4 +64,8 @@ data class AppColors(
     val checkingBackground: Color = Color(0xFFE4ECFB),
     val checkingContent: Color = Color(0xFF1D4AA8),
     val checkingTrack: Color = Color(0xFFB9CBEF),
+
+    // 홈 화면 위젯. 값이 gaugeNeutral과 같아도 쓰는 곳이 달라 따로 둔다.
+    // 비활성 새로 고침 아이콘
+    val widgetRefreshDisabled: Color = Color(0xFFB7BEC8),
 )

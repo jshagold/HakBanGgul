@@ -146,4 +146,30 @@ data class AppDimens(
     val checkingProgress: Dp = 17.5.dp,
     val checkingProgressStroke: Dp = 2.5.dp,
     val checkingProgressSlot: Dp = 20.dp,
+
+    // 홈 화면 위젯
+    // 카드: 테두리와 모서리 반지름(cardBorder, AppShapes.card와 같은 값). 카드 바탕 그림 리소스에 적는다.
+    val widgetCardBorder: Dp = 1.dp,
+    val widgetCardRadius: Dp = 16.dp,
+    // 작은 위젯: 안쪽 여백 위아래와 좌우, 키 안내·받지 못함에서 첫 줄과 안내 문구 사이
+    val widgetSmallPaddingVertical: Dp = 8.dp,
+    val widgetSmallPaddingHorizontal: Dp = 14.dp,
+    val widgetSmallMessageGap: Dp = 2.dp,
+    // 큰 위젯: 안쪽 여백(네 쪽 모두)
+    val widgetLargePadding: Dp = 16.dp,
+    // 작은 위젯의 버튼 자리: 가로, 세로, 카드 위쪽 끝에서, 오른쪽 끝에서. 아이콘 그림 칸
+    val widgetSmallButtonWidth: Dp = 40.dp,
+    val widgetSmallButtonHeight: Dp = 34.dp,
+    val widgetSmallButtonTop: Dp = 0.dp,
+    val widgetSmallButtonEnd: Dp = 2.dp,
+    val widgetSmallIcon: Dp = 16.dp,
+    // 큰 위젯의 버튼 자리: 가로, 세로, 카드 위쪽 끝에서, 오른쪽 끝에서. 아이콘 그림 칸
+    val widgetLargeButtonWidth: Dp = 44.dp,
+    val widgetLargeButtonHeight: Dp = 44.dp,
+    val widgetLargeButtonTop: Dp = 2.dp,
+    val widgetLargeButtonEnd: Dp = 2.dp,
+    val widgetLargeIcon: Dp = 18.dp,
+    // 진행 표시의 그림 칸(아이콘과 같은 칸에 놓인다)
+    val widgetSmallProgress: Dp = 16.dp,
+    val widgetLargeProgress: Dp = 18.dp,
 )

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 홈 화면 위젯의 진행 표시 한 장. 24×24 좌표로 그리고 그림 칸 크기(AppDimens.widgetSmallProgress, widgetLargeProgress)로 놓는다.
+     중심 (12, 12) 반지름 9인 바탕 고리와, 12시 방향부터 3시 방향까지의 사분원. 선 굵기 2.5. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 바탕 고리: AppColors.border -->
+    <path
+        android:pathData="M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FFE3E6EA" />
+    <!-- 도는 부분: AppColors.accent -->
+    <path
+        android:pathData="M12 3a9 9 0 0 1 9 9"
+        android:strokeWidth="2.5"
+        android:strokeColor="#FF2457C5"
+        android:strokeLineCap="round" />
+</vector>

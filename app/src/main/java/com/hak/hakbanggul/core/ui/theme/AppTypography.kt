@@ -57,6 +57,17 @@ data class AppTypography(
     val issueLink: TextStyle = style(14, FontWeight.Medium),
     // "무료, 카드 등록 없음"
     val issueNote: TextStyle = style(12, FontWeight.Normal),
+
+    // 홈 화면 위젯. 줄 높이는 Glance에서 정할 수 없어 두지 않는다.
+    // 작은 위젯: 첫 줄과 날짜 줄, 단계 이름, 안내 문구
+    val widgetSmallLine: TextStyle = style(12, FontWeight.Normal),
+    val widgetSmallStage: TextStyle = style(28, FontWeight.Bold),
+    val widgetSmallMessage: TextStyle = style(14, FontWeight.Bold),
+    // 큰 위젯: 첫 줄, 단계 이름, 안내 문구, 마지막 줄(날짜, "눌러서 앱 열기")
+    val widgetLargeTitle: TextStyle = style(13, FontWeight.Normal),
+    val widgetLargeStage: TextStyle = style(48, FontWeight.Bold),
+    val widgetLargeMessage: TextStyle = style(17, FontWeight.Bold),
+    val widgetLargeFooter: TextStyle = style(12, FontWeight.Normal),
 )
 
 private fun style(
