@@ -12,16 +12,16 @@ class ValuationCalculator @Inject constructor() {
 
     // 메인 기간의 매매 판단. closes는 대상의 종가, values의 키는 시리즈 ID다.
     // 주가 위치, 금리 부담, 10년물, 기준금리, 물가 상승률 가운데 하나라도 낼 수 없으면 null이다.
+    // 기간마다 내는 두 함수에 메인 기간 하나만 넘겨 만든다.
     fun assess(
         rules: ValuationRules,
         closes: List<DailyValue>?,
         values: Map<String, List<DailyValue>>,
         asOfDate: LocalDate,
     ): ValuationAssessment? {
-        val window = rules.mainPeriod().positionWindow
-        if (window < 2 || rules.smoothingDays < 1) return null
-        val pricePosition = assessPricePosition(rules, window, closes, asOfDate) ?: return null
-        val rateBurden = assessRateBurden(rules, window, values, asOfDate) ?: return null
+        val main = rules.mainPeriod()
+        val pricePosition = assessPricePositions(rules, closes, asOfDate, listOf(main))[main.id] ?: return null
+        val rateBurden = assessRateBurdens(rules, values, asOfDate, listOf(main))[main.id] ?: return null
         return ValuationAssessment(
             pricePosition = pricePosition,
             rateBurden = rateBurden,
@@ -32,75 +32,102 @@ class ValuationCalculator @Inject constructor() {
         )
     }
 
-    // 주가 위치. 주가 위치의 날은 대상의 종가가 있는 날이다.
-    private fun assessPricePosition(rules: ValuationRules, window: Int, list: List<DailyValue>?, asOfDate: LocalDate): PricePositionAssessment? {
-        if (list.isNullOrEmpty()) return null
-        val series = DailySeries.of(list)
+    // 기간마다의 주가 위치. 키는 기간 ID이고, 낼 수 없는 기간은 넣지 않는다.
+    // 주가 위치의 날은 대상의 종가가 있는 날이다. 두 괴리, 낙폭, 3개월 수익률은 기간과 상관없이 한 번만 내고,
+    // 위치, 점수, 점수로 정한 단계, 표시 단계만 기간마다 그 기간의 위치 기간으로 낸다.
+    // 기준 날짜에 종가가 없거나 3개월 수익률을 낼 수 없으면 빈 맵이다.
+    fun assessPricePositions(
+        rules: ValuationRules,
+        closes: List<DailyValue>?,
+        asOfDate: LocalDate,
+        periods: List<ValuationPeriod>,
+    ): Map<String, PricePositionAssessment> {
+        if (closes.isNullOrEmpty() || rules.smoothingDays < 1) return emptyMap()
+        val series = DailySeries.of(closes)
         val asOfIndex = series.dates.binarySearch(asOfDate)
-        if (asOfIndex < 0) return null
-        // 기준 날짜 뒤의 값은 쓰지 않는다.
-        val closes = series.values.copyOf(asOfIndex + 1)
-
-        val shortDeviations = deviations(closes, rules.shortAverageDays)
-        val longDeviations = deviations(closes, rules.longAverageDays)
-        val shortPositions = positions(shortDeviations, window)
-        val longPositions = positions(longDeviations, window)
-        val weightSum = rules.shortWeight + rules.longWeight
-        val pricePositions = DoubleArray(closes.size) { i ->
-            val s = shortPositions[i]
-            val l = longPositions[i]
-            if (s.isNaN() || l.isNaN()) Double.NaN else (s * rules.shortWeight + l * rules.longWeight) / weightSum
-        }
-        val scores = scores(pricePositions, rules.smoothingDays)
-        val score = scores[asOfIndex] ?: return null
-
-        // 3개월 수익률은 점수와 단계에 쓰지 않지만, 낼 수 없으면 매매 판단을 낼 수 없는 것으로 본다.
+        if (asOfIndex < 0) return emptyMap()
+        // 3개월 수익률은 점수와 단계에 쓰지 않지만, 낼 수 없으면 주가 위치를 낼 수 없는 것으로 본다.
         val threeMonthIndex = asOfIndex - rules.threeMonthDays
-        if (threeMonthIndex < 0) return null
-        val stages = stagesOf(scores.filterNotNull(), rules)
+        if (threeMonthIndex < 0) return emptyMap()
+        // 기준 날짜 뒤의 값은 쓰지 않는다.
+        val values = series.values.copyOf(asOfIndex + 1)
 
-        return PricePositionAssessment(
-            score = score,
-            scoredStage = stages.scored,
-            displayedStage = stages.displayed,
-            shortDeviation = shortDeviations[asOfIndex],
-            longDeviation = longDeviations[asOfIndex],
-            drawdown = series.drawdownAt(asOfIndex),
-            threeMonthReturn = closes[asOfIndex] / closes[threeMonthIndex] - 1,
-        )
+        val shortDeviations = deviations(values, rules.shortAverageDays)
+        val longDeviations = deviations(values, rules.longAverageDays)
+        val drawdown = series.drawdownAt(asOfIndex)
+        val threeMonthReturn = values[asOfIndex] / values[threeMonthIndex] - 1
+        val weightSum = rules.shortWeight + rules.longWeight
+
+        val result = LinkedHashMap<String, PricePositionAssessment>()
+        for (period in periods) {
+            val window = period.positionWindow
+            if (window < 2) continue
+            val shortPositions = positions(shortDeviations, window)
+            val longPositions = positions(longDeviations, window)
+            val pricePositions = DoubleArray(values.size) { i ->
+                val s = shortPositions[i]
+                val l = longPositions[i]
+                if (s.isNaN() || l.isNaN()) Double.NaN else (s * rules.shortWeight + l * rules.longWeight) / weightSum
+            }
+            val scores = scores(pricePositions, rules.smoothingDays)
+            val score = scores[asOfIndex] ?: continue
+            val stages = stagesOf(scores.filterNotNull(), rules)
+            result[period.id] = PricePositionAssessment(
+                score = score,
+                scoredStage = stages.scored,
+                displayedStage = stages.displayed,
+                shortDeviation = shortDeviations[asOfIndex],
+                longDeviation = longDeviations[asOfIndex],
+                drawdown = drawdown,
+                threeMonthReturn = threeMonthReturn,
+            )
+        }
+        return result
     }
 
-    // 금리 부담. 금리 부담의 날은 실질금리의 값이 있는 날이다.
-    private fun assessRateBurden(rules: ValuationRules, window: Int, values: Map<String, List<DailyValue>>, asOfDate: LocalDate): RateBurdenAssessment? {
-        val realYield = seriesOf(values, rules.realYieldSeries) ?: return null
+    // 기간마다의 금리 부담. 키는 기간 ID이고, 낼 수 없는 기간은 넣지 않는다.
+    // 금리 부담의 날은 실질금리의 값이 있는 날이다. 실질금리의 날, 1년 전과의 차이, 10년물, 기준금리, 물가는 한 번만 내고,
+    // 실질금리의 위치, 점수, 단계만 기간마다 낸다. 기간과 상관없는 값 가운데 하나라도 낼 수 없으면 빈 맵이다.
+    fun assessRateBurdens(
+        rules: ValuationRules,
+        values: Map<String, List<DailyValue>>,
+        asOfDate: LocalDate,
+        periods: List<ValuationPeriod>,
+    ): Map<String, RateBurdenAssessment> {
+        if (rules.smoothingDays < 1) return emptyMap()
+        val realYield = seriesOf(values, rules.realYieldSeries) ?: return emptyMap()
         val realYieldIndex = realYield.floorIndex(asOfDate)
-        if (realYieldIndex < 0) return null
-        // 실질금리의 날 뒤의 값은 쓰지 않는다.
-        val yields = realYield.values.copyOf(realYieldIndex + 1)
-        val scores = scores(positions(yields, window), rules.smoothingDays)
-        val score = scores[realYieldIndex] ?: return null
-        val stages = stagesOf(scores.filterNotNull(), rules)
-
+        if (realYieldIndex < 0) return emptyMap()
         // 1년 전 값: 기준 날짜에서 yearAgoDays일(달력) 앞의 날이나 그 전의 날 가운데 값이 있는 가장 가까운 날의 값
         val yearAgoIndex = realYield.floorIndex(asOfDate.minusDays(rules.yearAgoDays.toLong()))
-        if (yearAgoIndex < 0) return null
+        if (yearAgoIndex < 0) return emptyMap()
+        val treasury10y = datedValueOf(values, rules.treasury10ySeries, asOfDate) ?: return emptyMap()
+        val policyRate = datedValueOf(values, rules.policyRateSeries, asOfDate) ?: return emptyMap()
+        val inflation = inflationOf(values[rules.consumerPriceSeries.seriesId], asOfDate) ?: return emptyMap()
+        // 실질금리의 날 뒤의 값은 쓰지 않는다.
+        val yields = realYield.values.copyOf(realYieldIndex + 1)
 
-        val treasury10y = datedValueOf(values, rules.treasury10ySeries, asOfDate) ?: return null
-        val policyRate = datedValueOf(values, rules.policyRateSeries, asOfDate) ?: return null
-        val inflation = inflationOf(values[rules.consumerPriceSeries.seriesId], asOfDate) ?: return null
-
-        return RateBurdenAssessment(
-            realYieldDate = realYield.dates[realYieldIndex],
-            score = score,
-            scoredStage = stages.scored,
-            displayedStage = stages.displayed,
-            realYield = yields[realYieldIndex],
-            yearChange = yields[realYieldIndex] - realYield.values[yearAgoIndex],
-            treasury10y = treasury10y,
-            policyRate = policyRate,
-            inflationRate = inflation.rate,
-            inflationMonth = inflation.month,
-        )
+        val result = LinkedHashMap<String, RateBurdenAssessment>()
+        for (period in periods) {
+            val window = period.positionWindow
+            if (window < 2) continue
+            val scores = scores(positions(yields, window), rules.smoothingDays)
+            val score = scores[realYieldIndex] ?: continue
+            val stages = stagesOf(scores.filterNotNull(), rules)
+            result[period.id] = RateBurdenAssessment(
+                realYieldDate = realYield.dates[realYieldIndex],
+                score = score,
+                scoredStage = stages.scored,
+                displayedStage = stages.displayed,
+                realYield = yields[realYieldIndex],
+                yearChange = yields[realYieldIndex] - realYield.values[yearAgoIndex],
+                treasury10y = treasury10y,
+                policyRate = policyRate,
+                inflationRate = inflation.rate,
+                inflationMonth = inflation.month,
+            )
+        }
+        return result
     }
 
     private fun seriesOf(values: Map<String, List<DailyValue>>, series: IndicatorSeries): DailySeries? {
