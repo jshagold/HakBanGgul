@@ -20,23 +20,24 @@ class FakeMarketDataRepository(
 
     // 출처에서 돌려줄 값. fetchAnswer를 바꾸지 않으면 이 값에서 요청한 시리즈만 꺼내 돌려준다.
     var remote: MoodTestData.Builder = MoodTestData.dataA()
-    var fetchAnswer: suspend (DataSource, List<IndicatorSeries>, LocalDate) -> FetchResult = { _, series, _ ->
-        FetchResult.Success(remote.build(series.map { it.seriesId }))
+    var fetchAnswer: suspend (DataSource, List<SeriesRequest>) -> FetchResult = { _, requests ->
+        FetchResult.Success(remote.build(requests.map { it.series.seriesId }))
     }
     val fetchCalls = mutableListOf<FetchCall>()
 
     val saveCalls = mutableListOf<SaveCall>()
     var failOnSave = false
 
-    data class FetchCall(val source: DataSource, val seriesIds: List<String>, val startDate: LocalDate)
+    // requests: 시리즈 ID와 그 시작 날짜. 넘어온 순서 그대로다.
+    data class FetchCall(val source: DataSource, val requests: List<Pair<String, LocalDate>>)
     data class SaveCall(val values: Map<String, List<DailyValue>>, val succeededAt: Instant?)
 
     override fun observeStored(): Flow<StoredMarketData> = stored
 
-    override suspend fun fetch(source: DataSource, series: List<IndicatorSeries>, startDate: LocalDate): FetchResult {
-        fetchCalls += FetchCall(source, series.map { it.seriesId }, startDate)
+    override suspend fun fetch(source: DataSource, requests: List<SeriesRequest>): FetchResult {
+        fetchCalls += FetchCall(source, requests.map { it.series.seriesId to it.startDate })
         callOrder += "fetch"
-        return fetchAnswer(source, series, startDate)
+        return fetchAnswer(source, requests)
     }
 
     override suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?) {
@@ -69,8 +70,8 @@ class FakeMarketDataRepository(
     }
 }
 
-// 규칙을 테스트가 정하는 가짜. 처음에는 기본 규칙이다.
-class FakeMoodRulesRepository(rules: MoodRules = DefaultMoodRules.rules) : MoodRulesRepository {
+// 규칙을 테스트가 정하는 가짜. 처음에는 시험용 규칙이다.
+class FakeMoodRulesRepository(rules: MoodRules = MoodTestData.RULES) : MoodRulesRepository {
     val rules = MutableStateFlow(rules)
     override fun observe(): Flow<MoodRules> = rules
 }

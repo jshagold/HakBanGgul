@@ -11,8 +11,8 @@ import com.hak.hakbanggul.core.model.DataSource
 import com.hak.hakbanggul.core.network.SourceCallExecutor
 import com.hak.hakbanggul.core.network.SourceCallResult
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
-import com.hak.hakbanggul.feature.marketmood.domain.IndicatorSeries
 import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRepository
+import com.hak.hakbanggul.feature.marketmood.domain.SeriesRequest
 import com.hak.hakbanggul.feature.marketmood.domain.StoredMarketData
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -63,29 +63,41 @@ class MarketDataRepositoryImpl @Inject constructor(
                 emit(StoredMarketData(values = emptyMap(), lastSuccessAt = null))
             }
 
-    override suspend fun fetch(source: DataSource, series: List<IndicatorSeries>, startDate: LocalDate): FetchResult {
-        if (series.isEmpty()) return FetchResult.Success(emptyMap())
-        val start = startDate.toString()
+    override suspend fun fetch(source: DataSource, requests: List<SeriesRequest>): FetchResult {
+        if (requests.isEmpty()) return FetchResult.Success(emptyMap())
         return when (source) {
-            DataSource.TWELVE_DATA -> fetchTwelveData(series.map { it.seriesId }, start)
-            DataSource.FRED -> fetchFred(series.map { it.seriesId }, start)
+            DataSource.TWELVE_DATA -> fetchTwelveData(requests)
+            DataSource.FRED -> fetchFred(requests)
         }
     }
 
-    // 네 종목을 한 요청에 넣는다.
-    private suspend fun fetchTwelveData(symbols: List<String>, start: String): FetchResult =
-        when (val result = executor.execute(DataSource.TWELVE_DATA) { twelveDataApi.timeSeries(symbols.joinToString(","), start) }) {
-            is SourceCallResult.Failure -> FetchResult.Failure(result.error)
-            is SourceCallResult.Success ->
-                mapper.mapTwelveData(result.body, symbols)?.let { FetchResult.Success(it) }
-                    ?: FetchResult.Failure(DataFetchError.OTHER)
+    // 시작 날짜가 같은 종목끼리 요청 하나로 묶는다. 요청끼리의 순서는 처음 나온 순서다.
+    // 요청 가운데 하나라도 실패하면 출처 전체가 실패이고 받은 값을 하나도 돌려주지 않는다(앞 요청의 오류가 먼저다).
+    private suspend fun fetchTwelveData(requests: List<SeriesRequest>): FetchResult {
+        val batches = requests.groupBy({ it.startDate }, { it.series.seriesId })
+        val results = coroutineScope {
+            batches.map { (startDate, symbols) ->
+                async {
+                    val start = startDate.toString()
+                    when (val result = executor.execute(DataSource.TWELVE_DATA) { twelveDataApi.timeSeries(symbols.joinToString(","), start) }) {
+                        is SourceCallResult.Failure -> FetchResult.Failure(result.error)
+                        is SourceCallResult.Success ->
+                            mapper.mapTwelveData(result.body, symbols)?.let { FetchResult.Success(it) }
+                                ?: FetchResult.Failure(DataFetchError.OTHER)
+                    }
+                }
+            }.awaitAll()
         }
+        return merge(results)
+    }
 
     // 시리즈마다 요청 하나다. 하나라도 실패하면 그 오류로 출처 전체가 실패다(앞의 시리즈의 오류가 먼저다).
-    private suspend fun fetchFred(seriesIds: List<String>, start: String): FetchResult {
+    private suspend fun fetchFred(requests: List<SeriesRequest>): FetchResult {
         val results = coroutineScope {
-            seriesIds.map { id ->
+            requests.map { request ->
                 async {
+                    val id = request.series.seriesId
+                    val start = request.startDate.toString()
                     when (val result = executor.execute(DataSource.FRED) { fredApi.observations(id, start) }) {
                         is SourceCallResult.Failure -> FetchResult.Failure(result.error)
                         is SourceCallResult.Success ->
@@ -95,6 +107,11 @@ class MarketDataRepositoryImpl @Inject constructor(
                 }
             }.awaitAll()
         }
+        return merge(results)
+    }
+
+    // 요청들의 결과를 하나로 합친다. 실패가 하나라도 있으면 앞의 실패를 돌려준다.
+    private fun merge(results: List<FetchResult>): FetchResult {
         results.firstOrNull { it is FetchResult.Failure }?.let { return it }
         return FetchResult.Success(results.filterIsInstance<FetchResult.Success>().flatMap { it.values.entries }.associate { it.toPair() })
     }

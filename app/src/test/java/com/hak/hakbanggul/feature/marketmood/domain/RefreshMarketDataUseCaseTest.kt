@@ -30,14 +30,15 @@ class RefreshMarketDataUseCaseTest {
     private val repository = FakeMarketDataRepository()
     private val rulesRepository = FakeMoodRulesRepository()
     private val clock = FakeClock(Instant.parse("2026-11-24T01:00:00Z"))
-    private val useCase = RefreshMarketDataUseCase(repository, rulesRepository, MoodCalculator(), clock)
+    private val useCase = RefreshMarketDataUseCase(repository, rulesRepository, MoodCalculator(ValuationCalculator()), clock)
 
-    private val fredIds = listOf(YIELD_CURVE, HIGH_YIELD)
+    // FRED 시리즈 여섯: 장세 항목 둘과 매매 판단의 넷
+    private val fredIds = listOf(YIELD_CURVE, HIGH_YIELD) + MoodTestData.VALUATION_SERIES
 
     private fun answer(twelveData: FetchResult? = null, fred: FetchResult? = null) {
         val remote = repository.remote
-        repository.fetchAnswer = { source, series, _ ->
-            val fromRemote = FetchResult.Success(remote.build(series.map { it.seriesId }))
+        repository.fetchAnswer = { source, series ->
+            val fromRemote = FetchResult.Success(remote.build(series.map { it.series.seriesId }))
             when (source) {
                 TWELVE_DATA -> twelveData ?: fromRemote
                 FRED -> fred ?: fromRemote
@@ -52,7 +53,7 @@ class RefreshMarketDataUseCaseTest {
     @Test
     fun `R-23 받아 둔 값이 바뀌면 판정을 다시 계산해 내보낸다`() = runTest {
         repository.setStored(dataA(), null)
-        val observe = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator())
+        val observe = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))
         val received = mutableListOf<MoodAssessment?>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { observe().toList(received) }
 
@@ -64,16 +65,43 @@ class RefreshMarketDataUseCaseTest {
     // R-41
 
     @Test
-    fun `R-41 출처마다 한 번씩 미국 동부 날짜의 2년 전부터 받는다`() = runTest {
+    fun `R-41 출처마다 한 번씩 시리즈마다 그 받는 기간만큼 앞의 미국 동부 날짜부터 받는다`() = runTest {
         useCase()
 
+        val calls = repository.fetchCalls.sortedBy { it.source.ordinal }
+        assertEquals(listOf(TWELVE_DATA, FRED), calls.map { it.source })
         assertEquals(
-            listOf(
-                FakeMarketDataRepository.FetchCall(TWELVE_DATA, STOCKS, date("2024-11-23")),
-                FakeMarketDataRepository.FetchCall(FRED, fredIds, date("2024-11-23")),
+            mapOf(
+                "SPY" to date("2017-11-23"),
+                "QQQ" to date("2024-11-23"),
+                "XLK" to date("2024-11-23"),
+                "SMH" to date("2024-11-23"),
             ),
-            repository.fetchCalls.sortedBy { it.source.ordinal },
+            calls[0].requests.toMap(),
         )
+        assertEquals(
+            mapOf(
+                YIELD_CURVE to date("2024-11-23"),
+                HIGH_YIELD to date("2024-11-23"),
+                "DFII10" to date("2020-11-23"),
+                "DGS10" to date("2024-11-23"),
+                "DFF" to date("2024-11-23"),
+                "CPIAUCSL" to date("2024-11-23"),
+            ),
+            calls[1].requests.toMap(),
+        )
+        assertEquals(4, calls[0].requests.size)
+        assertEquals(6, calls[1].requests.size)
+    }
+
+    @Test
+    fun `R-41 데이터 A를 받으면 시리즈 열 개를 저장하고 CPIAUCSL의 값 24개가 모두 저장된다`() = runTest {
+        useCase()
+
+        val saved = repository.saveCalls.single().values
+        assertEquals(10, saved.size)
+        assertEquals((STOCKS + fredIds).toSet(), saved.keys)
+        assertEquals(24, saved.getValue("CPIAUCSL").size)
     }
 
     // R-37 장이 끝나지 않은 날의 값 거르기
@@ -89,6 +117,23 @@ class RefreshMarketDataUseCaseTest {
             assertEquals(id, date("2026-11-20"), saved.getValue(id).last().date)
         }
         assertEquals(date("2026-11-23"), saved.getValue(YIELD_CURVE).last().date)
+    }
+
+    @Test
+    fun `R-37 R-72 미국 동부 오후 3시 59분에도 매매 판단의 날마다의 값과 달마다의 값은 거르지 않는다`() = runTest {
+        clock.now = Instant.parse("2026-11-23T20:59:00Z")
+
+        useCase()
+
+        val saved = repository.saveCalls.single().values
+        STOCKS.forEach { id ->
+            assertEquals(id, date("2026-11-20"), saved.getValue(id).last().date)
+        }
+        listOf("DFII10", "DGS10", "DFF").forEach { id ->
+            assertEquals(id, date("2026-11-23"), saved.getValue(id).last().date)
+        }
+        assertEquals(date("2026-10-01"), saved.getValue("CPIAUCSL").last().date)
+        assertEquals(24, saved.getValue("CPIAUCSL").size)
     }
 
     @Test
@@ -108,9 +153,9 @@ class RefreshMarketDataUseCaseTest {
     @Test
     fun `R-42 10초를 넘긴 출처는 연결 안 됨이고 다른 출처의 값은 저장된다`() = runTest {
         val remote = repository.remote
-        repository.fetchAnswer = { source, series, _ ->
+        repository.fetchAnswer = { source, series ->
             if (source == TWELVE_DATA) delay(11_000)
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
 
         val outcome = useCase()
@@ -123,9 +168,9 @@ class RefreshMarketDataUseCaseTest {
     @Test
     fun `R-42 9_5초 안에 오면 Success`() = runTest {
         val remote = repository.remote
-        repository.fetchAnswer = { source, series, _ ->
+        repository.fetchAnswer = { source, series ->
             if (source == TWELVE_DATA) delay(9_500)
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
 
         assertEquals(RefreshOutcome.Success, useCase())
@@ -164,7 +209,7 @@ class RefreshMarketDataUseCaseTest {
     }
 
     @Test
-    fun `R-42 모두 성공하면 Success이고 시리즈 여섯과 받는 때로 한 번 저장한다`() = runTest {
+    fun `R-42 모두 성공하면 Success이고 시리즈 열과 받는 때로 한 번 저장한다`() = runTest {
         val outcome = useCase()
 
         assertEquals(RefreshOutcome.Success, outcome)
@@ -240,5 +285,19 @@ class RefreshMarketDataUseCaseTest {
         val save = repository.saveCalls.single()
         assertEquals((STOCKS + fredIds).toSet(), save.values.keys)
         assertEquals(startedAt, save.succeededAt)
+    }
+
+    // R-42 판정을 낼 수 없음 (매매 판단)
+
+    @Test
+    fun `R-42 출처가 DFII10 없이 돌려주면 OTHER이고 받은 값은 저장되며 성공한 때는 적지 않는다`() = runTest {
+        repository.remote = dataA().removeSeries(MoodTestData.REAL_YIELD)
+
+        val outcome = useCase()
+
+        assertEquals(RefreshOutcome.Failure(RefreshFailure.OTHER), outcome)
+        val save = repository.saveCalls.single()
+        assertEquals(repository.remote.build(), save.values)
+        assertNull(save.succeededAt)
     }
 }

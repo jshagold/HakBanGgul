@@ -19,6 +19,8 @@ data class MoodAssessment(
     val upperBoundary: Double,
     val lowerBoundary: Double,
     val groups: List<GroupAssessment>,
+    // 판정이 있으면 매매 판단도 늘 있다.
+    val valuation: ValuationAssessment,
 )
 
 data class GroupAssessment(

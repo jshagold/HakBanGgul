@@ -10,7 +10,6 @@ import com.hak.hakbanggul.core.network.ApiKeyAvailability.MISSING
 import com.hak.hakbanggul.core.network.FakeApiKeyProvider
 import com.hak.hakbanggul.core.ui.KeyBadgeKind
 import com.hak.hakbanggul.core.ui.UiText
-import com.hak.hakbanggul.feature.marketmood.domain.DefaultMoodRules
 import com.hak.hakbanggul.feature.marketmood.domain.FakeClock
 import com.hak.hakbanggul.feature.marketmood.domain.FakeMarketDataRepository
 import com.hak.hakbanggul.feature.marketmood.domain.FakeMoodRulesRepository
@@ -19,6 +18,11 @@ import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRefresher
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.valuesForScores
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.closesForScores
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
+import com.hak.hakbanggul.feature.marketmood.domain.SeriesKind
+import com.hak.hakbanggul.feature.marketmood.domain.IndicatorSeries
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.HIGH_YIELD
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.YIELD_CURVE
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
@@ -26,6 +30,7 @@ import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataB
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshMarketDataUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,8 +72,8 @@ class MarketMoodViewModelTest {
     private fun TestScope.newViewModel(): MarketMoodViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val clock = FakeClock(now)
-        val calculator = MoodCalculator()
-        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator)
+        val calculator = MoodCalculator(ValuationCalculator())
+        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         val refresher = MarketDataRefresher(
@@ -86,19 +91,19 @@ class MarketMoodViewModelTest {
 
     private fun holdFetch() {
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             pendingFetch.await()
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
     }
 
     private fun failFetch(error: DataFetchError) {
-        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(error) }
+        repository.fetchAnswer = { _, _ -> FetchResult.Failure(error) }
     }
 
     private fun succeedFetch() {
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ -> FetchResult.Success(remote.build(series.map { it.seriesId })) }
+        repository.fetchAnswer = { _, series -> FetchResult.Success(remote.build(series.map { it.series.seriesId })) }
     }
 
     // 받기를 한 번 실패로 끝낸 뒤의 ViewModel
@@ -210,7 +215,7 @@ class MarketMoodViewModelTest {
     @Test
     fun `R-06 위 경계가 0_6이면 눈금 위치도 따라 바뀐다`() = runTest {
         stored(dataB())
-        rulesRepository.rules.value = DefaultMoodRules.rules.copy(upperBoundary = 0.6)
+        rulesRepository.rules.value = MoodTestData.RULES.copy(upperBoundary = 0.6)
         assertEquals(0.671875f, newViewModel().mood.gaugePosition, 1e-6f)
     }
 
@@ -532,5 +537,358 @@ class MarketMoodViewModelTest {
         assertNotEquals(true, viewModel.body is MoodBody.KeyGuide)
         assertEquals(MoodBody.Loading, viewModel.body)
         pendingFetch.complete(Unit)
+    }
+
+    // 매매 판단 두 카드 (단위 4)
+
+    private val testPrice = "TEST_PRICE"
+
+    // 점수를 만들기 쉬운 규칙: 주가 위치는 시험용 시리즈 TEST_PRICE를 보고, 위치 기간 101, 평균 일수 1이다.
+    private fun stageRules(low: Int = 30, high: Int = 70, buffer: Int = 5) = MoodTestData.RULES.copy(
+        valuation = MoodTestData.RULES.valuation.copy(
+            priceSeries = IndicatorSeries(TWELVE_DATA, testPrice, SeriesKind.DAILY_CLOSE),
+            shortAverageDays = 2,
+            longAverageDays = 2,
+            positionWindow = 101,
+            smoothingDays = 1,
+            threeMonthDays = 2,
+            yearAgoDays = 1,
+            lowBoundary = low,
+            highBoundary = high,
+            buffer = buffer,
+        ),
+    )
+
+    // 주가 위치와 금리 부담의 점수열로 받아 둔 값과 규칙을 정하고 ViewModel을 만든다.
+    private fun TestScope.valuationViewModel(
+        priceScores: List<Int> = listOf(50),
+        rateScores: List<Int>? = null,
+        low: Int = 30,
+        high: Int = 70,
+        buffer: Int = 5,
+    ): MarketMoodViewModel {
+        rulesRepository.rules.value = stageRules(low, high, buffer)
+        val builder = dataA().replaceSeries(testPrice, closesForScores(priceScores))
+        if (rateScores != null) builder.replaceSeries(MoodTestData.REAL_YIELD, valuesForScores(rateScores))
+        stored(builder)
+        return newViewModel()
+    }
+
+    private fun scoreText(score: Int, nameRes: Int) = UiText(R.string.valuation_score, listOf(score, UiText(nameRes)))
+
+    private fun withDate(value: String, month: Int, day: Int) = UiText(R.string.evidence_value_with_date, listOf(value, month, day))
+
+    // R-05 판정의 구성
+
+    @Test
+    fun `R-05 데이터 A면 Assessment에 두 카드가 있다`() = runTest {
+        stored(dataA())
+        val mood = newViewModel().mood
+        assertNotNull(mood.pricePosition)
+        assertNotNull(mood.rateBurden)
+    }
+
+    @Test
+    fun `R-05 안내 띠가 있어도 두 카드가 함께 있다`() = runTest {
+        stored(dataA())
+        val viewModel = afterFailure(DataFetchError.NO_CONNECTION)
+        assertNotNull(viewModel.uiState.value.banner)
+        assertEquals(UiText(R.string.price_position_subtitle), viewModel.mood.pricePosition.subtitle)
+        assertEquals(UiText(R.string.rate_burden_subtitle, listOf("2.00%")), viewModel.mood.rateBurden.subtitle)
+    }
+
+    @Test
+    fun `R-05 받는 중에도 두 카드가 그대로 있다`() = runTest {
+        stored(dataA())
+        holdFetch()
+        val viewModel = newViewModel()
+        val before = viewModel.mood
+
+        viewModel.onRefreshClick()
+        runCurrent()
+
+        assertEquals(RefreshButtonState.REFRESHING, viewModel.uiState.value.refreshButton)
+        assertEquals(before.pricePosition, viewModel.mood.pricePosition)
+        assertEquals(before.rateBurden, viewModel.mood.rateBurden)
+        pendingFetch.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    // R-63, R-64 이름 아래 글, 점수와 단계의 글
+
+    @Test
+    fun `R-63 R-64 데이터 A의 이름 아래 글과 점수와 단계`() = runTest {
+        stored(dataA())
+        val mood = newViewModel().mood
+        assertEquals(UiText(R.string.price_position_subtitle), mood.pricePosition.subtitle)
+        assertEquals(scoreText(50, R.string.valuation_middle), mood.pricePosition.scoreText)
+        assertEquals(UiText(R.string.rate_burden_subtitle, listOf("2.00%")), mood.rateBurden.subtitle)
+        assertEquals(scoreText(50, R.string.valuation_middle), mood.rateBurden.scoreText)
+    }
+
+    // R-66 표시 단계를 상태에 실음
+
+    @Test
+    fun `R-66 주가 위치 LOW 6, 금리 부담 HIGH 98`() = runTest {
+        val mood = valuationViewModel(priceScores = listOf(6), rateScores = listOf(98)).mood
+        assertEquals(ValuationStage.LOW, mood.pricePosition.stage)
+        assertEquals(scoreText(6, R.string.valuation_price_low), mood.pricePosition.scoreText)
+        assertEquals(ValuationStage.HIGH, mood.rateBurden.stage)
+        assertEquals(scoreText(98, R.string.valuation_rate_high), mood.rateBurden.scoreText)
+    }
+
+    @Test
+    fun `R-66 주가 위치 HIGH 74, 금리 부담 LOW 22`() = runTest {
+        val mood = valuationViewModel(priceScores = listOf(74), rateScores = listOf(22)).mood
+        assertEquals(ValuationStage.HIGH, mood.pricePosition.stage)
+        assertEquals(scoreText(74, R.string.valuation_price_high), mood.pricePosition.scoreText)
+        assertEquals(ValuationStage.LOW, mood.rateBurden.stage)
+        assertEquals(scoreText(22, R.string.valuation_rate_low), mood.rateBurden.scoreText)
+    }
+
+    // R-65 칸 폭, 칸 이름, 표시 위치
+
+    private fun assertSegments(expected: List<Float>, actual: List<Float>) {
+        assertEquals(expected.size, actual.size)
+        expected.zip(actual).forEach { (e, a) -> assertEquals(e, a, 1e-6f) }
+    }
+
+    @Test
+    fun `R-65 데이터 A면 칸 폭 31, 38, 31과 칸 이름, 표시 0_5`() = runTest {
+        stored(dataA())
+        val mood = newViewModel().mood
+        listOf(mood.pricePosition, mood.rateBurden).forEach {
+            assertSegments(listOf(0.31f, 0.38f, 0.31f), it.gauge.segments)
+            assertEquals(0.5f, it.gauge.position, 1e-6f)
+        }
+        assertEquals(
+            listOf(UiText(R.string.valuation_price_low), UiText(R.string.valuation_middle), UiText(R.string.valuation_price_high)),
+            mood.pricePosition.gauge.labels,
+        )
+        assertEquals(
+            listOf(UiText(R.string.valuation_rate_low), UiText(R.string.valuation_middle), UiText(R.string.valuation_rate_high)),
+            mood.rateBurden.gauge.labels,
+        )
+    }
+
+    @Test
+    fun `R-65 경계 25 80이면 칸 폭 26, 53, 21`() = runTest {
+        rulesRepository.rules.value = MoodTestData.RULES.copy(
+            valuation = MoodTestData.RULES.valuation.copy(lowBoundary = 25, highBoundary = 80),
+        )
+        stored(dataA())
+        assertSegments(listOf(0.26f, 0.53f, 0.21f), newViewModel().mood.pricePosition.gauge.segments)
+    }
+
+    @Test
+    fun `R-65 점수 0이면 표시 0_0, 100이면 1_0`() = runTest {
+        assertEquals(0f, valuationViewModel(priceScores = listOf(0)).mood.pricePosition.gauge.position, 1e-6f)
+        assertEquals(1f, valuationViewModel(priceScores = listOf(100)).mood.pricePosition.gauge.position, 1e-6f)
+    }
+
+    // R-67 숫자와 단계가 다른 날 안내
+
+    @Test
+    fun `R-67 주가 위치 33, 점수로 정한 단계 MIDDLE, 표시 LOW`() = runTest {
+        val mood = valuationViewModel(priceScores = listOf(30, 33)).mood
+        assertEquals(
+            UiText(R.string.valuation_notice_low, listOf(33, UiText(R.string.valuation_price_low), 36)),
+            mood.pricePosition.notice,
+        )
+    }
+
+    @Test
+    fun `R-67 금리 부담 67, 점수로 정한 단계 MIDDLE, 표시 HIGH`() = runTest {
+        val mood = valuationViewModel(rateScores = listOf(70, 67)).mood
+        assertEquals(
+            UiText(R.string.valuation_notice_high, listOf(67, UiText(R.string.valuation_rate_high), 64)),
+            mood.rateBurden.notice,
+        )
+    }
+
+    @Test
+    fun `R-67 금리 부담 35, 표시 LOW`() = runTest {
+        val mood = valuationViewModel(rateScores = listOf(30, 35)).mood
+        assertEquals(
+            UiText(R.string.valuation_notice_low, listOf(35, UiText(R.string.valuation_rate_low), 36)),
+            mood.rateBurden.notice,
+        )
+    }
+
+    @Test
+    fun `R-67 경계 25 75, 완충 3이면 숫자를 판정에 실린 값에서 낸다`() = runTest {
+        val low = valuationViewModel(priceScores = listOf(25, 28), low = 25, high = 75, buffer = 3).mood
+        assertEquals(
+            UiText(R.string.valuation_notice_low, listOf(28, UiText(R.string.valuation_price_low), 29)),
+            low.pricePosition.notice,
+        )
+        val high = valuationViewModel(priceScores = listOf(75, 73), low = 25, high = 75, buffer = 3).mood
+        assertEquals(
+            UiText(R.string.valuation_notice_high, listOf(73, UiText(R.string.valuation_price_high), 71)),
+            high.pricePosition.notice,
+        )
+    }
+
+    @Test
+    fun `R-67 점수로 정한 단계와 표시 단계가 같으면 안내가 없다`() = runTest {
+        stored(dataA())
+        val mood = newViewModel().mood
+        assertNull(mood.pricePosition.notice)
+        assertNull(mood.rateBurden.notice)
+    }
+
+    // R-68 주가 위치의 근거 글
+
+    @Test
+    fun `R-68 두 괴리, 낙폭, 3개월 수익률의 글`() = runTest {
+        // 짧은 평균 2, 긴 평균 3, 위치 기간 3, 3개월 3인 규칙에서 마지막 종가 100의 괴리가 +0.041, +0.214, 낙폭 -0.032, 3개월 +0.058이 되게 한다.
+        val p = 200 / 1.041 - 100
+        val q = 300 / 1.214 - 100 - p
+        val closes = listOf(100 / 0.968, 100 / 1.058, q, p, 100.0)
+        rulesRepository.rules.value = MoodTestData.RULES.copy(
+            valuation = MoodTestData.RULES.valuation.copy(
+                priceSeries = IndicatorSeries(TWELVE_DATA, testPrice, SeriesKind.DAILY_CLOSE),
+                shortAverageDays = 2,
+                longAverageDays = 3,
+                positionWindow = 3,
+                smoothingDays = 1,
+                threeMonthDays = 3,
+            ),
+        )
+        stored(dataA().replaceSeries(testPrice, closes))
+
+        assertEquals(
+            listOf(
+                UiText(R.string.price_evidence_average, listOf("+4.1%", "+21.4%")),
+                UiText(R.string.price_evidence_drawdown, listOf("-3.2%", "+5.8%")),
+            ),
+            newViewModel().mood.pricePosition.evidence,
+        )
+    }
+
+    @Test
+    fun `R-68 데이터 A면 넷 모두 0_0%`() = runTest {
+        stored(dataA())
+        assertEquals(
+            listOf(
+                UiText(R.string.price_evidence_average, listOf("0.0%", "0.0%")),
+                UiText(R.string.price_evidence_drawdown, listOf("0.0%", "0.0%")),
+            ),
+            newViewModel().mood.pricePosition.evidence,
+        )
+    }
+
+    // R-69 금리 부담의 네 자리 글
+
+    private fun rateData(): MoodTestData.Builder = dataA()
+        .set(MoodTestData.REAL_YIELD, "2026-11-23", 2.79)
+        .set(MoodTestData.REAL_YIELD, "2025-11-21", 1.82)
+        .set(MoodTestData.TREASURY_10Y, "2026-11-23", 4.92)
+        .set(MoodTestData.POLICY_RATE, "2026-11-23", 3.88)
+        .set(MoodTestData.CONSUMER_PRICE, "2026-10-01", 312.3)
+
+    private fun rising(change: String) = UiText(R.string.rate_evidence_year_change, listOf(change, UiText(R.string.rate_evidence_rising)))
+
+    private fun TestScope.rateCard(builder: MoodTestData.Builder): ValuationCardUiState {
+        stored(builder)
+        return newViewModel().mood.rateBurden
+    }
+
+    @Test
+    fun `R-69 실질금리, 1년 전과의 차이, 금리, 물가의 글`() = runTest {
+        val card = rateCard(rateData())
+        assertEquals(UiText(R.string.rate_burden_subtitle, listOf("2.79%")), card.subtitle)
+        assertEquals(
+            listOf(
+                rising("+0.97%p"),
+                UiText(R.string.rate_evidence_rates, listOf("4.92%", "3.88%")),
+                UiText(R.string.rate_evidence_inflation, listOf("4.1%", "2", "+2.1%p", 10)),
+            ),
+            card.evidence,
+        )
+    }
+
+    @Test
+    fun `R-69 차이가 음수면 내리는 중`() = runTest {
+        val card = rateCard(rateData().set(MoodTestData.REAL_YIELD, "2025-11-21", 2.97))
+        assertEquals(
+            UiText(R.string.rate_evidence_year_change, listOf("-0.18%p", UiText(R.string.rate_evidence_falling))),
+            card.evidence[0],
+        )
+    }
+
+    @Test
+    fun `R-69 적는 값이 0이면 1년 전과 같음`() = runTest {
+        val same = UiText(R.string.rate_evidence_year_same)
+        assertEquals(same, rateCard(rateData().set(MoodTestData.REAL_YIELD, "2025-11-21", 2.79)).evidence[0])
+        assertEquals(same, rateCard(rateData().set(MoodTestData.REAL_YIELD, "2025-11-21", 2.786)).evidence[0])
+    }
+
+    @Test
+    fun `R-69 차이 +0_005는 +0_01%p로 오르는 중`() = runTest {
+        val builder = rateData()
+            .set(MoodTestData.REAL_YIELD, "2026-11-23", 1.0)
+            .set(MoodTestData.REAL_YIELD, "2025-11-21", 0.995)
+        assertEquals(rising("+0.01%p"), rateCard(builder).evidence[0])
+    }
+
+    @Test
+    fun `R-69 물가 1_8%, 9월 값`() = runTest {
+        val builder = rateData()
+            .remove(MoodTestData.CONSUMER_PRICE, "2026-10-01")
+            .set(MoodTestData.CONSUMER_PRICE, "2026-09-01", 305.4)
+        assertEquals(
+            UiText(R.string.rate_evidence_inflation, listOf("1.8%", "2", "-0.2%p", 9)),
+            rateCard(builder).evidence[2],
+        )
+    }
+
+    @Test
+    fun `R-69 데이터 A의 글`() = runTest {
+        assertEquals(
+            listOf(
+                UiText(R.string.rate_evidence_year_same),
+                UiText(R.string.rate_evidence_rates, listOf("4.00%", "3.50%")),
+                UiText(R.string.rate_evidence_inflation, listOf("3.0%", "2", "+1.0%p", 10)),
+            ),
+            rateCard(dataA()).evidence,
+        )
+    }
+
+    // R-70 날짜를 붙일지와 그 글
+
+    @Test
+    fun `R-70 실질금리, 10년물, 기준금리의 날짜가 기준 날짜와 다르면 값 뒤에 날짜를 붙인다`() = runTest {
+        val builder = rateData()
+            .remove(MoodTestData.REAL_YIELD, "2026-11-23")
+            .set(MoodTestData.REAL_YIELD, "2026-11-21", 2.79)
+            .remove(MoodTestData.TREASURY_10Y, "2026-11-23")
+            .set(MoodTestData.TREASURY_10Y, "2026-11-21", 4.92)
+            .remove(MoodTestData.POLICY_RATE, "2026-11-23")
+            .set(MoodTestData.POLICY_RATE, "2026-11-21", 3.88)
+        stored(builder)
+        val card = newViewModel().mood.rateBurden
+        assertEquals(UiText(R.string.rate_burden_subtitle, listOf(withDate("2.79%", 11, 21))), card.subtitle)
+        assertEquals(
+            UiText(R.string.rate_evidence_rates, listOf(withDate("4.92%", 11, 21), withDate("3.88%", 11, 21))),
+            card.evidence[1],
+        )
+        // 첫 줄과 점수에는 날짜가 없다.
+        assertEquals(rising("+0.97%p"), card.evidence[0])
+        // 점수: 실질금리의 날(11월 21일)까지 세 날의 위치 0.5, 0.5, 1.0의 평균
+        assertEquals(scoreText(67, R.string.valuation_middle), card.scoreText)
+    }
+
+    @Test
+    fun `R-70 기준금리만 날짜가 다르면 기준금리에만 붙인다`() = runTest {
+        val builder = rateData()
+            .remove(MoodTestData.POLICY_RATE, "2026-11-23")
+            .set(MoodTestData.POLICY_RATE, "2026-11-20", 3.88)
+        val card = rateCard(builder)
+        assertEquals(UiText(R.string.rate_burden_subtitle, listOf("2.79%")), card.subtitle)
+        assertEquals(
+            UiText(R.string.rate_evidence_rates, listOf("4.92%", withDate("3.88%", 11, 20))),
+            card.evidence[1],
+        )
     }
 }

@@ -1,367 +1,344 @@
-# Tasks: 홈 화면 위젯 신규 개발
+# Tasks: 시장 분위기 버전업-002
 
-기능: 홈 화면 위젯
-변경: 신규 개발 (CS-003)
-기준 Plan: 1.0.0
-상태: 구현 중
+기능: 시장 분위기
+변경: 버전업-002 (CS-004)
+기준 Plan: 2.0.0
+상태: 작성 중
 
 | 전달 | 날짜 | 이유 |
 |---|---|---|
-| 1 | 2026-11-25 | 최초 전달 |
 
 ## 1. 개요
-홈 화면 위젯은 앱을 열지 않고 홈 화면에서 지금 장세와 기준 날짜를 보여 주고, 위젯이 놓여 있는 동안 앱을 열지 않아도 값이 새로 받아지게 하는 기능이다. 이번에 처음 만든다: 작은 위젯(2×1)과 큰 위젯(2×2), 오른쪽 위의 새로 고침 버튼, 약 6시간마다 뒤에서 받기, 위젯을 누르면 앱의 시장 분위기 화면 열기.
-위젯은 값을 갖지 않고 따로 계산하지 않는다. 판정과 받는 중인지는 시장 분위기가, 키의 상태는 설정이 내주는 것을 쓰고, 데이터는 시장 분위기에 받아 달라고 청하기만 한다. 무엇을 보여 줄지는 Domain의 UseCase 하나가 정하고, 위젯은 그 결과를 그리기만 한다.
-시장 분위기와 설정의 코드(`feature/marketmood`, `feature/settings`)는 고치지 않는다. 시장 분위기에서 쓰는 것은 `ObserveMoodUseCase`, `RequestRefreshUseCase`, `ObserveRefreshStateUseCase`와 그 모델(MoodAssessment, MarketStage, RefreshState, RefreshCondition, RefreshRequestResult)뿐이다. MarketDataRefresher, RefreshMarketDataUseCase, MarketDataRepository, ObserveSourceKeysUseCase는 쓰지 않는다(테스트에서 진짜 UseCase를 만들 때만 쓴다). `core`와 앱 맨 위 패키지는 아래 지시대로 더하기만 하고, 있는 값과 함수, 두 화면의 모양과 동작은 바꾸지 않는다.
+시장 분위기는 여러 항목으로 지금 장세(불장, 중립, 약세, 물장)를 판정해 근거와 함께 보여 주는 첫 화면이다. 쓰는 사람이 끝내 알고 싶은 것은 지금이 사기 좋은 때인지 팔기 좋은 때인지인데 장세는 그 답이 아니라서, 이번에 매매 판단을 더한다. 매매 판단은 지금 장이 평소(지난 5년)와 비교해 어디쯤인지를 0~100 점수로 날마다 읽는 것이고, 꼭지나 바닥을 맞히는 신호가 아니다. 매달 꾸준히 사는 장기 투자자가 지금이 평소에 비해 비싼 편인지를 보는 데 쓴다. 주가가 얼마나 올라와 있는지(주가 위치, 전체 시장 SPY)와 금리가 얼마나 높은지(금리 부담, 실질금리)를 둘로 나눠 보인다.
+이번에 할 일: 매매 판단의 규칙과 계산(따로 둔 계산기 ValuationCalculator), 받는 시리즈와 받는 기간 늘리기(SPY 9년, 실질금리 6년, 10년물 국채 금리·기준금리·소비자물가 2년), 계산을 화면 스레드 밖으로 옮기기, 화면의 매매 판단 두 카드와 두 제목. 매매 판단의 값까지 모두 있어야 판정이 난다.
+장세의 공식과 점수, 받는 때(6시간, 새로 고침, 청), 실패의 처리, 저장의 모양(DB 표)은 바꾸지 않는다. 홈 화면 위젯과 설정의 코드(`feature/homewidget`, `feature/settings`)는 고치지 않는다. 위젯의 테스트만 테스트 데이터와 객체 만들기를 맞춘다(단위 1, 3). MarketDataRefresher, MarketResponseMapper, 두 Api, DB, RefreshState 쪽은 고칠 것이 없다.
 
 ## 2. 구현 단위
 
-### 단위 1: 빌드 설정과 공용 준비물
+### 단위 1: 매매 판단의 규칙과 모델, 테스트 데이터
 
 **만들거나 고칠 것**
-- 수정 `gradle/libs.versions.toml`
-- 수정 `app/build.gradle.kts`
-- 수정 AppColors, AppTypography, AppDimens (core/ui/theme)
-- 수정 UiText (core/ui)
-- 신규 AppLaunchIntents (core/ui)
+- 수정 IndicatorSeries, SeriesKind (feature/marketmood/domain)
+- 신규 ValuationRules (feature/marketmood/domain)
+- 수정 MoodRules (feature/marketmood/domain)
+- 수정 DefaultMoodRules (feature/marketmood/domain)
+- 신규 ValuationStage (feature/marketmood/domain)
+- 신규 ValuationAssessment, PricePositionAssessment, RateBurdenAssessment, DatedValue (feature/marketmood/domain)
+- 신규 SeriesRequest (feature/marketmood/domain)
+- 수정 MoodTestData, MarketMoodFakes의 FakeMoodRulesRepository (테스트, feature/marketmood/domain)
+
+**지시**
+- 새 용어의 영어 이름: 매매 판단 `Valuation`, 주가 위치 `PricePosition`, 금리 부담 `RateBurden`, 매매 판단의 단계 `ValuationStage`, 점수로 정한 단계 `scoredStage`, 위치 `position`, 위치 기간 `positionWindow`, 짧은 괴리 `shortDeviation`, 긴 괴리 `longDeviation`, 짧은 평균 일수 `shortAverageDays`, 긴 평균 일수 `longAverageDays`, 짧은 쪽 비중 `shortWeight`, 긴 쪽 비중 `longWeight`, 평균 일수 `smoothingDays`, 낮은 경계 `lowBoundary`, 높은 경계 `highBoundary`, 완충 `buffer`, 3개월 수익률 `threeMonthReturn`, 3개월로 보는 날 수 `threeMonthDays`, 낙폭 `drawdown`, 실질금리 `realYield`, 실질금리의 날 `realYieldDate`, 1년 전과의 차이 `yearChange`, 1년 전으로 보는 날 수 `yearAgoDays`, 10년물 국채 금리 `treasury10y`, 기준금리 `policyRate`, 소비자물가 `consumerPrice`, 물가의 1년 상승률 `inflationRate`, 물가 목표 `inflationTarget`, 받는 기간 `fetchYears`. 처음 선언하는 곳 위에 `// 용어: (한국어 이름)` 주석을 단다. 표시 단계 `displayedStage`, 기준 날짜 `asOfDate`는 있는 이름을 쓴다.
+- SeriesKind에 `MONTHLY_VALUE`(달마다의 값)를 더한다. 달마다의 값은 그 달 1일의 날짜로 담는다(FRED가 주는 날짜 그대로). 장이 끝나지 않은 날 거르기는 지금처럼 DAILY_CLOSE만이다. (P-35)
+- ValuationRules는 매매 판단의 규칙이다. 아래 필드를 갖는 데이터 클래스다. (P-28, P-29)
+  - `priceSeries: IndicatorSeries`: 주가 위치의 대상 시리즈
+  - `shortAverageDays: Int`, `longAverageDays: Int`, `shortWeight: Double`, `longWeight: Double`
+  - `positionWindow: Int`, `smoothingDays: Int`
+  - `lowBoundary: Int`, `highBoundary: Int`, `buffer: Int`
+  - `threeMonthDays: Int`
+  - `priceFetchYears: Int`: 대상 시리즈의 받는 기간(해)
+  - `realYieldSeries: IndicatorSeries`, `realYieldFetchYears: Int`
+  - `treasury10ySeries: IndicatorSeries`, `policyRateSeries: IndicatorSeries`, `consumerPriceSeries: IndicatorSeries`
+  - `yearAgoDays: Int`: 달력의 날 수
+  - `inflationTarget: Double`: 비율(2%는 0.02)
+- MoodRules에 `valuation: ValuationRules`와 `fetchYears: Int`(장세의 항목과 그 밖의 매매 판단 시리즈의 받는 기간)를 더한다. 그리고 `fun fetchYearsBySeries(): Map<IndicatorSeries, Int>`를 둔다: 장세의 항목이 쓰는 시리즈는 `fetchYears`, 매매 판단의 대상 시리즈는 `priceFetchYears`, 실질금리는 `realYieldFetchYears`, 10년물·기준금리·소비자물가는 `fetchYears`. 시리즈 ID가 같은 시리즈가 여럿이면 하나만 두고 그중 긴 기간을 쓴다. 순서는 묶음과 항목의 순서, 그 뒤에 대상 → 실질금리 → 10년물 → 기준금리 → 소비자물가 순이다(이미 나온 ID는 그 자리에 둔다). (R-41, P-29)
+- DefaultMoodRules에 값을 더한다. 장세의 값은 바꾸지 않는다. (R-41, R-71, P-28, P-29)
+  - `fetchYears` 2
+  - 매매 판단: 대상 `IndicatorSeries(TWELVE_DATA, "SPY", DAILY_CLOSE)`, 짧은 평균 200, 긴 평균 756, 비중 2.0 : 1.0, 위치 기간 1260, 평균 일수 20, 낮은 경계 30, 높은 경계 70, 완충 5, 3개월 63, 대상의 받는 기간 9
+  - 실질금리 `IndicatorSeries(FRED, "DFII10", DAILY_VALUE)`, 받는 기간 6. 10년물 `IndicatorSeries(FRED, "DGS10", DAILY_VALUE)`, 기준금리 `IndicatorSeries(FRED, "DFF", DAILY_VALUE)`, 소비자물가 `IndicatorSeries(FRED, "CPIAUCSL", MONTHLY_VALUE)`, 1년 전 365일, 물가 목표 0.02
+- ValuationStage는 매매 판단의 단계 열거형이다: `LOW`(싼 편, 낮음) / `MIDDLE`(보통) / `HIGH`(비싼 편, 높음). 주가 위치와 금리 부담이 함께 쓴다. 이름(싼 편/낮음)은 화면이 카드에 따라 고른다. (P-34)
+- 매매 판단의 모델. 다른 기능(홈 화면 위젯)도 받는 모델이다. (R-81, P-23, P-27)
+  - `ValuationAssessment(pricePosition: PricePositionAssessment, rateBurden: RateBurdenAssessment, lowBoundary: Int, highBoundary: Int, buffer: Int, inflationTarget: Double)`. 뒤의 넷은 규칙의 값을 그대로 옮긴 것이다(화면이 안내 줄의 숫자와 물가 목표를 낸다).
+  - `PricePositionAssessment(score: Int, scoredStage: ValuationStage, displayedStage: ValuationStage, shortDeviation: Double, longDeviation: Double, drawdown: Double, threeMonthReturn: Double)`. 괴리, 낙폭, 수익률은 비율이다(+4.1%는 0.041). 모두 기준 날짜의 것이다.
+  - `RateBurdenAssessment(realYieldDate: LocalDate, score: Int, scoredStage: ValuationStage, displayedStage: ValuationStage, realYield: Double, yearChange: Double, treasury10y: DatedValue, policyRate: DatedValue, inflationRate: Double, inflationMonth: YearMonth)`. 금리 값은 받은 값 그대로(퍼센트 단위, 2.79%는 2.79)이고, `inflationRate`는 비율이다(3.7%는 0.037).
+  - `DatedValue(value: Double, date: LocalDate)`
+- SeriesRequest는 받을 시리즈 하나와 그 시작 날짜다: `SeriesRequest(series: IndicatorSeries, startDate: LocalDate)`. 단위 2에서 쓴다. (P-30)
+- 테스트 데이터를 맞춘다. 단위 3에서 판정에 매매 판단의 값까지 들게 되므로 먼저 준비해 둔다. 있던 테스트를 지우거나 줄이지 않는다.
+  - MoodTestData의 데이터 A에 시리즈 넷을 더한다: `DFII10` 평일마다 2.00, `DGS10` 평일마다 4.00, `DFF` 평일마다 3.50 (모두 데이터 A의 주식과 같은 날들), `CPIAUCSL` 2024-11-01부터 2025-10-01까지 매달 1일 300.0, 2025-11-01부터 2026-10-01까지 매달 1일 309.0. 데이터 B는 데이터 A에서 만들므로 저절로 들어간다.
+  - MoodTestData에 시험용 규칙 `RULES`를 둔다: 기본 규칙에서 매매 판단의 짧은 평균 5, 긴 평균 10, 위치 기간 20, 평균 일수 3, 3개월 5로 줄인 것. 나머지(장세의 값, 경계, 완충, 받는 기간, 시리즈)는 기본 규칙 그대로다. 데이터 A(2년)로 매매 판단을 낼 수 있게 하려는 것이다.
+  - FakeMoodRulesRepository의 처음 규칙을 `MoodTestData.RULES`로 바꾼다. 있던 테스트에서 `DefaultMoodRules.rules`를 판정 계산에 넘기거나 고쳐 쓰는 곳(예: `DefaultMoodRules.rules.copy(upperBoundary = 0.6)`)은 `MoodTestData.RULES`로 바꾼다. 기본 규칙의 값 자체를 확인하는 테스트(R-30 등)는 그대로 둔다.
+  - 시험용 규칙에서 데이터 A의 매매 판단은 이렇게 된다(단위 3의 테스트가 쓴다): 주가 위치 50 · MIDDLE(점수로 정한 단계도 MIDDLE), 두 괴리 0, 낙폭 0, 3개월 수익률 0. 금리 부담 50 · MIDDLE, 실질금리의 날 2026-11-23, 실질금리 2.00, 1년 전과의 차이 0, 10년물 4.00(2026-11-23), 기준금리 3.50(2026-11-23), 물가 상승률 309 ÷ 300 - 1 = 0.03, 그 달 2026-10. 값이 모두 같으면 위치가 모두 0.5라서다.
+
+**테스트 지시**
+- R-71: Given 기본 규칙 / When `valuation`을 본다 / Then 대상 SPY(TWELVE_DATA, DAILY_CLOSE), 200, 756, 2.0, 1.0, 1260, 20, 30, 70, 5, 63, 대상의 받는 기간 9, 실질금리 DFII10(FRED, DAILY_VALUE) 6, 10년물 DGS10(FRED, DAILY_VALUE), 기준금리 DFF(FRED, DAILY_VALUE), 소비자물가 CPIAUCSL(FRED, MONTHLY_VALUE), 1년 전 365, 물가 목표 0.02
+- R-41 (시리즈마다의 받는 기간)
+  - Given 기본 규칙 / When `fetchYearsBySeries()` / Then 10개다: SPY 9, QQQ 2, XLK 2, SMH 2, T10Y2Y 2, BAMLH0A0HYM2 2, DFII10 6, DGS10 2, DFF 2, CPIAUCSL 2. SPY는 한 번만 나온다
+  - Given 기본 규칙에서 대상의 받는 기간만 1로 바꾼 규칙 / When `fetchYearsBySeries()` / Then SPY는 2다(장세 항목의 2가 더 길다)
+- R-30: 있던 테스트가 그대로 통과한다(장세의 묶음과 항목은 바뀌지 않는다)
+
+**확인 기준**
+- 테스트 통과, 컴파일 오류 없음
+
+### 단위 2: 받는 시리즈와 받는 기간
+
+**만들거나 고칠 것**
+- 수정 MarketDataRepository (feature/marketmood/domain)
+- 수정 RefreshMarketDataUseCase (feature/marketmood/domain)
+- 수정 ObserveSourceKeysUseCase (feature/marketmood/domain)
+- 수정 MarketDataRepositoryImpl (feature/marketmood/data)
+- 수정 FakeMarketDataRepository (테스트, feature/marketmood/domain)
+
+**지시**
+- MarketDataRepository의 받기를 `suspend fun fetch(source: DataSource, requests: List<SeriesRequest>): FetchResult`로 바꾼다. 시리즈마다 시작 날짜를 받는다. 요청을 어떻게 나누는지는 Data 층이 정한다. 출처 안의 요청 가운데 하나라도 받지 못하거나 읽지 못하면 그 출처 전체가 Failure이고, 앞 요청의 오류가 먼저다. 나머지 함수는 그대로다. (P-30, P-09)
+- RefreshMarketDataUseCase는 받는 시리즈를 `rules.fetchYearsBySeries()`에서 모은다. 시리즈마다 시작 날짜는 받는 때의 미국 동부 시간 날짜에서 그 시리즈의 받는 기간(해)을 뺀 날이다(지금의 2년과 같은 방식). 출처마다 `fetch`를 한 번 부르는 것, 출처끼리 동시에 받기, 출처마다 10초 제한, 장이 끝나지 않은 날 거르기(DAILY_CLOSE만. MONTHLY_VALUE와 DAILY_VALUE는 거르지 않는다), 저장, 성공한 때를 적는 조건, 결과의 우선순위는 그대로다. 받기를 시작한 때를 요청 전에 적는 것도 그대로다. (R-41, R-37, R-72, P-29, P-30, P-35)
+- ObserveSourceKeysUseCase는 출처를 `rules.fetchYearsBySeries()`의 시리즈에서 모은다(매매 판단의 시리즈의 출처도 들어간다). 출처의 순서는 지금처럼 DataSource의 선언 순서다. 기본 규칙에서는 두 출처 그대로라 결과가 같다. (R-15, R-04)
+- MarketDataRepositoryImpl (R-41, P-08, P-30)
+  - Twelve Data: 시작 날짜가 같은 종목끼리 요청 하나로 묶는다(`symbol`은 쉼표로 이은 티커, `start_date`는 그 시작 날짜). 기본 규칙에서는 SPY(9년 전) 한 요청과 QQQ·XLK·SMH(2년 전) 한 요청, 둘이다. 요청끼리의 순서는 처음 나온 순서다. 요청마다 MarketResponseMapper로 읽는다(종목이 하나일 때와 여럿일 때의 두 모양을 이미 읽는다). 요청 가운데 하나라도 실패하면 그 출처 전체가 실패이고 받은 값을 하나도 돌려주지 않는다. 오류는 앞 요청의 것이 먼저다.
+  - FRED: 지금처럼 시리즈마다 요청 하나이고, `observation_start`에 그 시리즈의 시작 날짜를 쓴다.
+  - 요청 목록이 비면 지금처럼 빈 Success다.
+- FakeMarketDataRepository의 `fetch`와 기록(FetchCall)을 새 모양에 맞춘다. 가짜가 돌려주는 값은 지금처럼 `remote`에서 요청한 시리즈만 꺼낸 것이다.
+- 있던 테스트 `R-41 출처마다 한 번씩 미국 동부 날짜의 2년 전부터 받는다`는 R-41이 바뀌어 맞지 않는다. 아래 테스트 지시의 R-41 경우로 바꾼다.
+
+**테스트 지시**
+- R-41 (시리즈마다의 시작 날짜)
+  - Given 기본 규칙, 받는 때 2026-11-24T01:00:00Z(미국 동부 2026-11-23) / When 받기 한 번 / Then `fetch`는 출처마다 한 번이다. TWELVE_DATA: SPY 2017-11-23, QQQ·XLK·SMH 2024-11-23. FRED: T10Y2Y·BAMLH0A0HYM2 2024-11-23, DFII10 2020-11-23, DGS10·DFF·CPIAUCSL 2024-11-23
+  - Given 위와 같음, 출처가 데이터 A(시리즈 열 개)를 돌려줌 / When 받기 한 번 / Then 저장한 시리즈는 열 개이고, CPIAUCSL의 값 24개가 모두 저장된다
+- R-41 (시작 날짜가 같은 종목끼리 한 요청, 하나라도 실패하면 출처 실패) (가짜 Api)
+  - Given Twelve Data 요청 SPY 2017-11-23, QQQ 2024-11-23, XLK 2024-11-23, SMH 2024-11-23. 가짜 Api는 SPY 요청에 종목 하나의 응답을, 셋의 요청에 종목 여럿의 응답을 준다 / When `fetch(TWELVE_DATA, 요청 넷)` / Then Api의 `timeSeries`가 두 번 불린다: (`SPY`, `2017-11-23`), (`QQQ,XLK,SMH`, `2024-11-23`). 결과는 Success이고 네 종목의 값이 모두 있다
+  - Given 위와 같은데 두 번째 요청의 응답이 HTTP 429 / When `fetch` / Then Failure(RATE_LIMITED)이고 SPY의 값도 돌려주지 않는다
+  - Given 첫 번째 요청의 응답이 읽을 수 없는 본문, 두 번째 요청의 응답이 HTTP 429 / When `fetch` / Then Failure(OTHER) (앞 요청의 오류가 먼저)
+  - Given FRED 요청 DFII10 2020-11-23, DGS10 2024-11-23 / When `fetch(FRED, 요청 둘)` / Then Api의 `observations`가 (`DFII10`, `2020-11-23`), (`DGS10`, `2024-11-23`)으로 불린다
+- R-37 (장이 끝나지 않은 날의 값 거르기), R-72 (같음)
+  - Given 받는 때 2026-11-23T20:59:00Z(미국 동부 오후 3시 59분), 출처가 2026-11-23의 값까지 돌려줌 / When 받기 한 번 / Then 저장한 SPY·QQQ·XLK·SMH는 2026-11-20까지이고, DFII10·DGS10·DFF는 2026-11-23까지 있다. CPIAUCSL은 2026-10-01까지 그대로 있다
+  - 있던 R-37 테스트(오후 4시 정각)는 그대로 통과한다
+- R-15 (규칙이 쓰는 출처): Given 장세의 항목이 모두 TWELVE_DATA 시리즈이고 매매 판단의 실질금리·10년물·기준금리·소비자물가가 FRED인 규칙, 두 출처의 키 AVAILABLE / When ObserveSourceKeysUseCase를 모은다 / Then TWELVE_DATA, FRED 두 출처가 그 순서로 나온다
+
+**확인 기준**
+- 테스트 통과, 컴파일 오류 없음
+
+### 단위 3: 매매 판단의 계산
+
+**만들거나 고칠 것**
+- 신규 DailySeries (feature/marketmood/domain)
+- 신규 ValuationCalculator (feature/marketmood/domain)
+- 수정 MoodCalculator (feature/marketmood/domain)
+- 수정 MoodAssessment (feature/marketmood/domain)
+- 수정 ObserveMoodUseCase (feature/marketmood/domain)
+- 신규 DefaultDispatcher (core/di)
+- 수정 CoroutineScopeModule (core/di)
+- 수정 시장 분위기와 홈 화면 위젯의 테스트에서 MoodCalculator, ObserveMoodUseCase를 만드는 곳 (테스트)
+
+**지시**
+- DailySeries는 날짜 오름차순으로 정리한 시리즈 하나다. MoodCalculator 안의 `Series`를 꺼내 옮긴 것이고, 장세와 매매 판단이 함께 쓴다. 같은 날짜가 여럿이면 앞의 것 하나만 둔다. 밖에 내놓는 것: `companion fun of(values: List<DailyValue>): DailySeries`, `dates: List<LocalDate>`, `values: DoubleArray`, `fun floorIndex(day: LocalDate): Int`(그날이나 그 전의 가장 가까운 날의 위치, 없으면 -1), `fun drawdownAt(index: Int): Double`(그날의 종가와 최근 1년 최고 종가로 낸 낙폭. 최근 1년 최고 종가는 그날로부터 1년 전의 같은 날 이후 그날까지의 종가 가운데 가장 높은 값). 장세의 낙폭 계산을 이것으로 바꾸고, 장세의 결과는 바꾸지 않는다. (R-32, R-11, R-68, P-32)
+- ValuationCalculator는 매매 판단을 내는 순수 계산기다. `class ValuationCalculator @Inject constructor()`, `fun assess(rules: ValuationRules, values: Map<String, List<DailyValue>>, asOfDate: LocalDate): ValuationAssessment?`. values의 키는 시리즈 ID다. 지금 시각을 쓰지 않는다. 아래를 하나라도 낼 수 없으면 null이다. (R-40, P-27)
+- 주가 위치 (R-72, R-73, R-74, R-76, R-77, R-78, R-68, P-33, P-34)
+  - 주가 위치의 날은 대상 시리즈(`priceSeries`)의 값이 있는 날이다. 장세의 거래일과 상관없다.
+  - 그날의 짧은 괴리 = 그날의 종가 ÷ 그날을 포함한 최근 `shortAverageDays`개 날의 종가의 평균 - 1. 긴 괴리는 `longAverageDays`로 같게 낸다. 각각 그 개수만큼의 종가가 있는 날에만 낸다.
+  - 어떤 값의 그날의 위치(0~1) = (그날을 포함한 최근 `positionWindow`개 값 가운데 그날의 값을 뺀 나머지에서, 그날의 값보다 작은 값의 수 + 그날의 값과 같은 값의 수 × 0.5) ÷ (`positionWindow` - 1). `positionWindow`개 값이 모두 있는 날에만 낸다. 기간은 값의 개수로 센다(R-73). 날마다 창의 값을 처음부터 다시 센다(P-31).
+  - 그날의 주가 위치 = (짧은 괴리의 위치 × `shortWeight` + 긴 괴리의 위치 × `longWeight`) ÷ (`shortWeight` + `longWeight`). 두 위치가 모두 있는 날에만 낸다.
+  - 주가 위치 점수 = 그날을 포함한 최근 `smoothingDays`개 날의 주가 위치의 평균 × 100을 반올림한 정수(0~100). 반올림은 소수 첫째 자리가 5 이상이면 올린다(12.5는 13). 그 개수만큼 주가 위치가 있는 날에만 낸다.
+  - 3개월 수익률 = 기준 날짜의 종가 ÷ 그보다 `threeMonthDays`개 앞의 주가 위치의 날의 종가 - 1. 점수와 단계에는 쓰지 않는다. 낼 수 없으면 매매 판단을 낼 수 없는 것으로 본다(기본 규칙에서는 점수가 있는 날이면 늘 낼 수 있다).
+  - 낙폭은 대상 시리즈의 DailySeries의 `drawdownAt`이다. 장세의 전체 시장 항목에서 가져오지 않는다(P-32).
+  - 기준 날짜에 대상 시리즈의 값이 없거나 기준 날짜의 점수를 낼 수 없으면 null이다.
+- 금리 부담 (R-75, R-77, R-78, R-79, P-34)
+  - 금리 부담의 날은 실질금리(`realYieldSeries`)의 값이 있는 날이다. 숫자가 아닌 값은 받을 때 이미 빠져 있다.
+  - 실질금리의 날 = 기준 날짜나 그 전의 날 가운데 실질금리의 값이 있는 가장 가까운 날.
+  - 금리 부담 점수 = 그날을 포함한 최근 `smoothingDays`개 금리 부담의 날의 실질금리의 위치(위의 위치와 같은 식, `positionWindow`) 평균 × 100을 위와 같이 반올림한 정수. 실질금리의 날의 점수를 낼 수 없으면 null이다.
+  - 1년 전과의 차이 = 실질금리의 날의 값 - 1년 전 값. 1년 전 값은 기준 날짜에서 `yearAgoDays`일(달력) 앞의 날이나 그 전의 날 가운데 실질금리의 값이 있는 가장 가까운 날의 값이다. 없으면 null이다.
+- 점수로 정한 단계와 표시 단계 (R-76, R-77, P-34)
+  - 점수로 정한 단계: 점수 ≤ `lowBoundary`면 LOW, 점수 ≥ `highBoundary`면 HIGH, 그 밖이면 MIDDLE. 반올림한 정수 점수로 가른다.
+  - 표시 단계는 주가 위치와 금리 부담 각각, 점수를 낼 수 있는 첫날부터 그 날짜(주가 위치는 기준 날짜, 금리 부담은 실질금리의 날)까지 그 날들마다 따진다. 저장해 이어 가지 않고 늘 처음부터 다시 따진다.
+    - 첫날: 그날의 점수로 정한 단계.
+    - 전날의 표시 단계가 MIDDLE: 그날의 점수로 정한 단계.
+    - 전날이 LOW: 점수 ≥ `highBoundary`면 HIGH, 점수 > `lowBoundary` + `buffer`면 MIDDLE, 그 밖이면 LOW.
+    - 전날이 HIGH: 점수 ≤ `lowBoundary`면 LOW, 점수 < `highBoundary` - `buffer`면 MIDDLE, 그 밖이면 HIGH.
+  - 두 쪽의 규칙이 같으므로 코드를 하나만 둔다.
+- 10년물 국채 금리와 기준금리: 각각 기준 날짜나 그 전의 날 가운데 값이 있는 가장 가까운 날의 값과 그 날짜(DatedValue). 없으면 null이다. (R-78)
+- 물가의 1년 상승률 (R-80)
+  - 소비자물가의 값은 달마다 그 달 1일의 날짜로 들어 있다. 달(YearMonth)로 다룬다.
+  - 그 달 = 소비자물가의 값이 있는 달 가운데, 12달 전 달의 값도 있는 가장 최근 달. 상승률 = 그 달의 값 ÷ 12달 전 달의 값 - 1. 그런 달이 없으면 null이다.
+  - 기준 날짜보다 뒤의 달은 쓰지 않는다(기준 날짜가 든 달까지 본다).
+- ValuationAssessment에는 규칙의 `lowBoundary`, `highBoundary`, `buffer`, `inflationTarget`을 그대로 싣는다.
+- MoodAssessment에 `valuation: ValuationAssessment`를 더한다(맨 뒤, null이 아님). 판정이 있으면 매매 판단도 늘 있다. (R-81, P-27)
+- MoodCalculator는 `class MoodCalculator @Inject constructor(private val valuationCalculator: ValuationCalculator)`로 바꾼다. `assess(rules: MoodRules, values)`의 모양은 그대로다. 장세를 지금처럼 낸 뒤 기준 날짜를 넘겨 `valuationCalculator.assess(rules.valuation, values, asOfDate)`를 부르고, null이면 판정도 null이다. 매매 판단의 시리즈는 장세의 항목이 아니라 거래일에 들지 않는다(거래일은 지금처럼 장세 항목 가운데 DAILY_CLOSE인 것 모두의 값이 있는 날). 장세의 계산은 바꾸지 않는다. 판정이 나는지를 보는 곳(화면, 위젯, 받기의 성공 판정, 화면이 보이게 될 때의 판정)은 모두 이 MoodCalculator를 보므로 따로 고칠 것이 없다. (R-40, R-37, R-42, R-20, P-27)
+- `core/di`에 한정자 `@DefaultDispatcher`를 두고, CoroutineScopeModule에서 `Dispatchers.Default`를 `CoroutineDispatcher`로 제공한다. 있는 `@ApplicationScope`는 그대로다. (P-31)
+- ObserveMoodUseCase는 생성자로 `@DefaultDispatcher dispatcher: CoroutineDispatcher`를 더 받아(맨 뒤), 계산하는 Flow를 그 디스패처에서 돌린다. 받는 쪽이 어느 스레드에서 모으든 같다. 내주는 값(판정 또는 null)은 그대로다. (R-23, R-58, R-81, P-14, P-31)
+- 테스트 코드에서 `MoodCalculator()`와 `ObserveMoodUseCase(...)`를 만드는 곳을 새 생성자에 맞춘다(시장 분위기와 홈 화면 위젯의 테스트 모두). 테스트에서는 시험용 디스패처를 넘긴다. 위젯의 테스트는 이것과 단위 1의 테스트 데이터만 맞추고, 위젯의 코드는 고치지 않는다.
+
+**테스트 지시**
+아래에서 "작은 규칙"은 ValuationCalculator를 확인하려고 숫자를 줄인 규칙이다. 시리즈는 기본 규칙의 것(SPY, DFII10, DGS10, DFF, CPIAUCSL)을 쓰고, 날짜는 평일로 이어지게 둔다. 확인하는 쪽 말고 다른 쪽(주가 위치를 볼 때의 금리 부담 등)은 낼 수 있게 값을 넣어 둔다. 점수로 정한 단계와 표시 단계를 볼 때는 위치 기간 101, 평균 일수 1인 규칙을 쓰면 점수가 "앞 100개 값 가운데 그날의 값보다 작은 값의 수"(같은 값이 없을 때)가 되어 원하는 점수열을 만들기 쉽다. 데이터를 어떻게 만들지는 CLI가 정한다.
+
+- R-72 (두 괴리, 3개월 수익률, 낼 수 있는 날), R-73, R-74
+  - Given 작은 규칙(짧은 평균 2, 긴 평균 3, 비중 2 : 1, 위치 기간 3, 평균 일수 1, 3개월 2), SPY 종가 10, 12, 11, 13, 12 (다섯 날), 기준 날짜는 다섯째 날 / When assess / Then 짧은 괴리 -0.04, 긴 괴리 0.0, 주가 위치 점수 42다. (짧은 괴리 셋 -0.0435, +0.0833, -0.04에서 오늘의 위치 0.5, 긴 괴리 셋 0.0, +0.0833, 0.0에서 같은 값 하나라 위치 0.25, (0.5 × 2 + 0.25) ÷ 3 = 0.4167) 3개월 수익률은 12 ÷ 11 - 1 = +0.0909다
+  - Given 위 다섯 날에 여섯째 날 종가 15를 더함, 기준 날짜는 여섯째 날 / When assess / Then 짧은 괴리 +0.1111, 긴 괴리 +0.125, 주가 위치 점수 100, 3개월 수익률 15 ÷ 11 - 1 = +0.3636
+  - Given 위 여섯 날, 평균 일수만 2로 바꾼 규칙, 기준 날짜는 여섯째 날 / When assess / Then 주가 위치 점수 71 ((0.4167 + 1.0) ÷ 2 = 0.7083)
+  - Given 위 다섯 날, 기준 날짜는 넷째 날 / When assess / Then null (넷째 날에는 긴 괴리가 위치 기간 셋만큼 없다)
+  - Given 기본 규칙, SPY 종가 2034개(평일, 값은 CLI가 정함), 실질금리 등 나머지는 낼 수 있음, 기준 날짜는 마지막 날 / When assess / Then 매매 판단이 있다. Given SPY 종가 2033개 / Then null (긴 괴리는 756번째 날부터, 그 위치는 1260개가 쌓인 날부터, 점수는 20개가 쌓인 날부터라 2034번째 날이 처음이다)
+- R-73 (같은 값): Given 위치 기간 5, 평균 일수 1인 규칙, 실질금리 1, 2, 2, 3, 2 / When assess / Then 금리 부담 점수 50 (나머지 1, 2, 2, 3 가운데 작은 값 1, 같은 값 2 → (1 + 1) ÷ 4 = 0.5)
+- R-75 (점수, 반올림)
+  - Given 위치 기간 5, 평균 일수 2인 규칙, 실질금리 5, 4, 3, 2, 1, 1.5, 기준 날짜는 여섯째 날 / When assess / Then 금리 부담 점수 13 (위치 0과 0.25의 평균 0.125 × 100 = 12.5를 올림)
+  - Given 위치 기간 5, 평균 일수 1인 규칙, 실질금리 값이 넷뿐 / When assess / Then null
+  - Given 기본 규칙, 실질금리 값 1279개 / When assess / Then 금리 부담이 있다. 1278개면 null
+- R-78
+  - Given 실질금리가 기준 날짜(2026-11-23)에 없고 2026-11-20까지 있음 / When assess / Then `realYieldDate`는 2026-11-20이고 점수와 실질금리 값은 그날의 것이다
+  - Given 10년물이 2026-11-20까지, 기준금리가 2026-11-23까지 있음, 기준 날짜 2026-11-23 / When assess / Then `treasury10y`는 2026-11-20의 값과 날짜, `policyRate`는 2026-11-23의 값과 날짜다
+  - Given 10년물의 값이 모두 기준 날짜보다 뒤 / When assess / Then null. 기준금리도 같다
+  - Given 주가 위치 / When assess / Then 점수, 두 괴리, 낙폭, 3개월 수익률은 기준 날짜의 것이다(기준 날짜 뒤에 SPY 종가가 더 있어도)
+- R-79
+  - Given 기준 날짜 2026-11-23, 실질금리 2025-11-21에 1.82, 2025-11-24에 1.90(2025-11-22, 23은 주말), 2026-11-23에 2.79 / When assess / Then 1년 전과의 차이 2.79 - 1.82 = +0.97 (365일 앞은 2025-11-23이라 그 전의 가장 가까운 날 2025-11-21)
+  - Given 실질금리가 기준 날짜의 365일 앞보다 뒤부터만 있음 / When assess / Then null
+- R-80
+  - Given 소비자물가 2025-09 300.0, 2025-10 없음, 2025-11 302.0, …, 2026-09 311.1, 2026-10 312.0 (2025-09 전은 없음) / When assess / Then 상승률 311.1 ÷ 300.0 - 1 = 0.037, 그 달 2026-09 (2026-10은 12달 전인 2025-10이 없다)
+  - Given 소비자물가가 2025-11부터 2026-10까지 12달뿐 / When assess / Then null (12달 전 값이 있는 달이 없다)
+  - Given 소비자물가 2025-10 300.0, 2026-10 312.0, 2026-11 313.0, 기준 날짜 2026-10-30 / When assess / Then 그 달 2026-10 (기준 날짜 뒤의 달은 쓰지 않는다)
+- R-76: Given 위치 기간 101, 평균 일수 1, 경계 30/70인 규칙 / When 금리 부담 점수가 30, 31, 69, 70인 날을 각각 첫날로 assess / Then 점수로 정한 단계와 표시 단계는 LOW, MIDDLE, MIDDLE, HIGH
+- R-77 (위와 같은 규칙, 완충 5. 점수열은 첫날부터 기준 날짜까지 날마다의 점수, Then은 기준 날짜의 표시 단계와 점수로 정한 단계)
+  - 점수열 30, 35 → 표시 LOW, 점수로 정한 단계 MIDDLE
+  - 점수열 30, 36 → 표시 MIDDLE
+  - 점수열 30, 70 → 표시 HIGH (보통을 거치지 않음)
+  - 점수열 70, 65 → 표시 HIGH, 점수로 정한 단계 MIDDLE
+  - 점수열 70, 64 → 표시 MIDDLE
+  - 점수열 70, 30 → 표시 LOW
+  - 점수열 30, 35, 33, 36, 34 → 표시 MIDDLE (36에서 보통으로 바뀐 뒤 34는 경계 30보다 크다)
+  - 점수열 50, 33 → 표시 MIDDLE (보통에서는 바로 점수로 정한 단계)
+  - 위 경우를 주가 위치에서도 하나 이상 확인한다(점수열 30, 35 → LOW). 금리 부담의 표시 단계는 실질금리의 날까지만 따진다: Given 실질금리 점수열 30, 35이고 기준 날짜에는 실질금리 값이 없음(그 전날까지) / Then 표시 LOW
+- R-68 (네 값의 계산), R-11, R-32
+  - Given SPY 종가가 2025-11-24에 200, 그 뒤 기준 날짜 2026-11-23까지 190 이하, 기준 날짜 184 / When assess / Then 낙폭 184 ÷ 200 - 1 = -0.08
+  - Given 2025-11-21에 250(1년 전 같은 날보다 앞), 2025-11-24부터는 위와 같음 / Then 낙폭은 그대로 -0.08
+  - 장세의 있던 R-11, R-32 테스트가 그대로 통과한다
+- R-40 (매매 판단의 값)
+  - Given 데이터 A, 시험용 규칙 / When ValuationCalculator.assess(기준 날짜 2026-11-23) / Then 단위 1에 적은 값과 같다(주가 위치 50 · MIDDLE, 금리 부담 50 · MIDDLE, 차이 0, 10년물 4.00, 기준금리 3.50, 물가 0.03 · 2026-10), 경계 30, 70, 완충 5, 물가 목표 0.02가 실린다
+  - Given 데이터 A에서 DFII10을 뺌 / Then null. DGS10, DFF, CPIAUCSL을 하나씩 뺀 것도 각각 null. SPY를 뺀 것도 null
+- R-40 (매매 판단이 없으면 판정도 없음)
+  - Given 데이터 A, 시험용 규칙 / When MoodCalculator.assess / Then 판정이 있고, 장세의 값은 전과 같으며(현재 상태 1.0, 불장), `valuation`은 위 R-40의 값이다
+  - Given 데이터 A에서 DFII10을 뺌 / When MoodCalculator.assess / Then null (장세는 낼 수 있어도)
+  - Given 데이터 A에서 CPIAUCSL을 2025-11-01부터만 남김 / Then null
+- R-37 (거래일에 매매 판단의 시리즈는 넣지 않음): Given 데이터 A에 DGS10, DFF, DFII10을 2026-11-24에 하나씩 더함 / When MoodCalculator.assess / Then 기준 날짜는 2026-11-23이다. Given 데이터 A에서 DFII10의 2026-11-23 값을 뺌 / Then 기준 날짜는 2026-11-23이고 `realYieldDate`는 2026-11-20이다
+- R-42 (판정을 낼 수 없음): Given 받아 둔 값 없음, 출처가 데이터 A에서 DFII10을 뺀 값을 돌려줌(FRED는 Success) / When 받기 한 번 / Then 결과는 Failure(OTHER), 받은 값은 저장되고 성공한 때는 적지 않는다
+- R-20 (받을지 판정): Given 받아 둔 값이 데이터 A에서 DFII10, DGS10, DFF, CPIAUCSL을 뺀 것(앱을 바꾸기 전에 받아 둔 값), 성공한 때 1시간 전, 키 둘 AVAILABLE / When 화면이 보이게 됨 / Then 받기가 시작된다 (판정을 낼 수 있는 값이 없다)
+- R-23 (계산용 디스패처에서)
+  - Given ObserveMoodUseCase에 시험용 디스패처(StandardTestDispatcher)를 넘김, 받아 둔 값 데이터 A / When 다른 디스패처에서 모으기 시작하고 넘긴 디스패처는 아직 돌리지 않음 / Then 판정이 아직 나오지 않는다. 넘긴 디스패처를 돌리면 판정이 나온다
+  - 있던 R-23 테스트(데이터 A → 데이터 B로 바뀌면 다시 계산)가 그대로 통과한다
+- R-58, R-81: Given 받아 둔 값 데이터 A, 시험용 규칙, 화면과 받기 관리자 없음 / When ObserveMoodUseCase의 첫 값 / Then 판정이 있고 `valuation.pricePosition.score` 50, `displayedStage` MIDDLE, `valuation.rateBurden.score` 50, `displayedStage` MIDDLE. Given 데이터 A에서 DFF를 뺌 / Then null
+- 있던 시장 분위기 테스트(MoodCalculator, ObserveMoodUseCase, MarketDataRefresher, RefreshMarketDataUseCase, 다른 기능에 내주는 UseCase)와 홈 화면 위젯의 테스트가 모두 통과한다
+
+**확인 기준**
+- 테스트 통과, 컴파일 오류 없음
+
+### 단위 4: 매매 판단 두 카드의 화면 상태
+
+**만들거나 고칠 것**
+- 수정 MoodTextFormatter (feature/marketmood/presentation)
+- 수정 MarketMoodUiState (feature/marketmood/presentation)
+- 수정 MarketMoodViewModel (feature/marketmood/presentation)
 - 수정 `app/src/main/res/values/strings.xml`
-- 신규 카드 바탕, 새로 고침 아이콘, 진행 표시의 그림 리소스 (`app/src/main/res/drawable/`. 파일 이름은 CLI가 정한다)
 
 **지시**
-- 새 용어의 영어 이름: 홈 화면 위젯 `HomeWidget`, 작은 위젯 `SmallMoodWidget`, 큰 위젯 `LargeMoodWidget`, 키 안내 `KeyGuide`, 받지 못함 `NotReceived`. 기능 패키지는 `feature/homewidget`이다. 처음 선언하는 곳 위에 `// 용어: (한국어 이름)` 주석을 단다. 단계 `MarketStage`, 기준 날짜 `asOfDate`, 표시 단계 `displayedStage`, 출처 `DataSource`, 받아 달라는 청 `RefreshRequest`는 있는 이름을 쓴다.
-- 라이브러리를 더한다: Glance의 앱 위젯 `androidx.glance:glance-appwidget` 1.2.0, WorkManager `androidx.work:work-runtime-ktx` 2.12.0. 2026-11-25 기준의 안정 버전이다. 저장소의 다른 라이브러리나 빌드 도구(AGP 9.5.2, Kotlin 2.4.21, compileSdk 37.1)와 맞지 않으면 맞는 버전을 골라 decisions.md에 DECISION으로 남긴다. Hilt의 Worker 지원(`hilt-work`)은 들이지 않는다. (P-11)
-- 공용 테마에 위젯의 값을 더한다. 값은 시안(단위 4의 시안 주소)에서 뽑은 것이고, 1px = 1dp(글자는 1sp)로 옮긴다. 있는 값은 바꾸지 않고, 위젯도 있는 값을 쓸 수 있는 곳은 있는 값을 쓴다. Glance는 Compose의 TextStyle, Color를 그대로 받지 못하므로, 위젯 쪽에서 값을 꺼내 Glance의 것으로 바꿔 쓴다. 어떻게 바꿀지는 CLI가 정한다. (R-13, P-12)
-  - AppColors에 더할 것: 비활성 새로 고침 아이콘의 색 `#B7BEC8` (값이 `gaugeNeutral`과 같지만 쓰는 곳이 달라 따로 둔다)
-  - AppColors의 있는 값을 쓰는 곳: 카드 바탕 `card` #FFFFFF, 카드 테두리 `border` #E3E6EA, 첫 줄·날짜 줄·"눌러서 앱 열기"·누를 수 있는 새로 고침 아이콘 `textMuted` #4A5360, 안내 문구 `text` #1B1F24, 단계 이름 `stageBull` #C5221F · `stageNeutral` #4A5360 · `stageWeak` #3D7BD9 · `stageBear` #1D4AA8, 진행 표시의 바탕 고리 `border` #E3E6EA, 도는 부분 `accent` #2457C5
-  - AppTypography에 더할 것(크기, 굵기)
-    - 작은 위젯: 첫 줄과 날짜 줄 12 Normal, 단계 이름 28 Bold, 안내 문구 14 Bold
-    - 큰 위젯: 첫 줄 13 Normal, 단계 이름 48 Bold, 안내 문구 17 Bold, 마지막 줄(날짜, "눌러서 앱 열기") 12 Normal
-    - 시안의 줄 높이(1.2~1.4)는 Glance에서 정할 수 없어 옮기지 않는다. 글꼴은 기기의 기본 글꼴이다(시안의 Noto Sans KR가 아니다). (P-12)
-  - AppDimens에 더할 것
-    - 카드: 테두리 1, 모서리 반지름 16 (있는 `cardBorder` 1과 `AppShapes.card` 16과 같은 값이다. 그림 리소스에 적을 때 이 값을 쓴다)
-    - 작은 위젯: 안쪽 여백 위아래 8, 좌우 14. 키 안내와 받지 못함에서 첫 줄과 안내 문구 사이 2 (판정의 세 줄 사이는 0)
-    - 큰 위젯: 안쪽 여백 16 (네 쪽 모두)
-    - 작은 위젯의 버튼 자리: 가로 40, 세로 34, 카드 위쪽 끝에서 0, 오른쪽 끝에서 2. 아이콘 그림 칸 16
-    - 큰 위젯의 버튼 자리: 가로 44, 세로 44, 카드 위쪽 끝에서 2, 오른쪽 끝에서 2. 아이콘 그림 칸 18
-    - 진행 표시의 그림 칸: 작은 위젯 16, 큰 위젯 18 (아이콘과 같은 칸에 놓인다)
-- 아이콘과 진행 표시는 시안에서 24×24 좌표의 그림을 그림 칸 크기로 줄여 그린 것이다. 그림 리소스도 24×24 좌표로 그리고 그림 칸 크기로 놓는다. 실제로 그려지는 크기는 아래와 같다. 값을 옮길 때 그림 칸 크기와 그려지는 크기를 섞지 않는다. (R-13, R-37, R-39, P-12)
-  - 새로 고침 아이콘: 경로 `M20 12a8 8 0 1 1-2.6-5.9`, `M20 4v5h-5`, 선 굵기 2, 끝과 꺾이는 곳 둥글게 (`AppIcons.Refresh`와 같다). 그려지는 선 굵기는 작은 위젯 약 1.33, 큰 위젯 1.5다. 색은 놓는 곳에서 정한다(누를 수 있음 #4A5360, 비활성 #B7BEC8).
-  - 진행 표시: 중심 (12, 12) 반지름 9인 바탕 고리(#E3E6EA)와, 그 위에서 12시 방향부터 시계 방향으로 3시 방향까지의 사분원 `M12 3a9 9 0 0 1 9 9`(#2457C5, 끝 둥글게), 선 굵기 2.5. 사분원이 고리를 따라 계속 돈다. 그려지는 고리의 바깥 지름(선 굵기까지 넣은 크기)과 굵기는 작은 위젯 약 13.7과 1.7, 큰 위젯 약 15.4와 1.9다.
-  - 카드 바탕: 흰 바탕 #FFFFFF, 테두리 1 #E3E6EA, 모서리 16. 그림 리소스 하나로 깐다(Glance에는 테두리가 없고, 모서리를 깎는 것은 Android 12부터 된다).
-  - 그림 리소스에 적는 색과 크기는 공용 테마와 같은 값이다. 어느 테마 값인지 주석으로 적는다. (P-12)
-- UiText에 `fun UiText.asString(context: Context): String`을 더한다. 있는 `asString()`(Compose용)과 같이 args 안의 UiText를 먼저 풀어 끼운다. 있는 함수는 바꾸지 않는다. Glance에서는 Compose용을 쓸 수 없어서다.
-- AppLaunchIntents는 위젯이 앱을 열 때 쓰는 Intent를 만들고 읽는 곳이다. 위젯(기능)이 MainActivity(앱 맨 위)를 직접 가리키지 않고 둘 다 `core`만 보게 한다. (R-14, R-15, P-14)
-  - `fun marketMood(context: Context): Intent`: 이 앱을 여는 Intent에 "시장 분위기 화면을 보이라"는 표시를 단다. MainActivity 클래스를 이름으로 가리키지 않는다(예: 패키지의 실행 Intent를 쓴다). 앱이 이미 열려 있으면 새 MainActivity를 만들지 않고 있는 것이 이 Intent를 받게 하는 플래그를 단다.
-  - `fun showsMarketMood(intent: Intent?): Boolean`: 받은 Intent에 그 표시가 있는지.
-- `strings.xml`에 위젯 문구를 더한다. (R-01, R-06, R-11, R-26, R-02)
-  - 위젯의 이름: "장세 (작게)", "장세 (크게)"
-  - 기준 날짜: "%1$d월 %2$d일 종가" (있는 `mood_as_of`는 "종가 기준 (미국)"까지 있어 쓰지 않는다)
-  - "눌러서 앱 열기"
-  - 진행 표시의 설명: "받는 중"
-  - 미리 보기의 기준 날짜(예시): "11월 23일 종가"
-  - 있는 문구를 쓰는 것: "지금 장은" `mood_now`, 단계 이름 `stage_bull`·`stage_neutral`·`stage_weak`·`stage_bear`, "학반꿀" `app_name`, "키를 넣어 주세요" `key_guide_title`, "데이터를 받지 못했습니다" `mood_failed_title`, 새로 고침 버튼의 설명 `action_refresh`
+- MoodTextFormatter에 더한다. 반올림과 부호는 있는 함수들과 같다(사사오입, 음수는 하이픈, 0에는 부호 없음). 있는 함수는 바꾸지 않는다. (R-69, P-16)
+  - `fun ratioPercent(ratio: Double): String`: 비율 × 100을 부호 없이 소수 한 자리. 0.037 → `3.7%`
+  - `fun inflationGap(rate: Double, target: Double): String`: 상승률을 소수 한 자리 퍼센트로 반올림한 값에서 목표(퍼센트)를 뺀 차이를 부호를 붙여 소수 한 자리 `%p`로. 0이면 부호 없이. (0.041, 0.02) → `+2.1%p`, (0.018, 0.02) → `-0.2%p`, (0.0204, 0.02) → `0.0%p`
+  - `fun targetPercent(target: Double): String`: 목표 × 100을 끝의 0 없이. 0.02 → `2`, 0.025 → `2.5`
+  - 실질금리·10년물·기준금리의 `2.79%`는 있는 `percent`, 1년 전과의 차이 `+0.97%p`는 있는 `signedPercentPoint`, 괴리·낙폭·3개월 수익률 `+4.1%`는 있는 `signedPercent`를 쓴다.
+- MarketMoodUiState의 MoodUiState에 `pricePosition: ValuationCardUiState`, `rateBurden: ValuationCardUiState`를 더한다. (R-05, R-63, R-64)
+  - `ValuationCardUiState(subtitle: UiText, scoreText: UiText, stage: ValuationStage, gauge: ValuationGaugeUiState, notice: UiText?, evidence: List<UiText>)`. `subtitle`은 카드 이름 아래의 글, `scoreText`는 "35 · 보통", `stage`는 표시 단계(색을 고르는 데 쓴다), `notice`는 숫자와 단계가 다른 날만 있다, `evidence`는 근거 줄을 위에서부터. 카드 이름("주가 위치", "금리 부담")은 화면이 고정 문구로 적는다.
+  - `ValuationGaugeUiState(segments: List<Float>, labels: List<UiText>, position: Float)`. `segments`는 낮은 칸, 가운데 칸, 높은 칸의 폭(합 1), `labels`는 세 칸의 이름, `position`은 표시의 자리(0은 왼쪽 끝, 1은 오른쪽 끝).
+- MarketMoodViewModel이 판정의 `valuation`으로 두 카드를 만든다. 판정이 보이는 모든 때(안내 띠가 있을 때, 받는 중일 때, 장세와 종합 점수가 다른 날 포함) 함께 있다. (R-05, R-63~R-70, P-16, P-33, P-34)
+  - 단계의 이름: 주가 위치는 LOW "싼 편", MIDDLE "보통", HIGH "비싼 편". 금리 부담은 LOW "낮음", MIDDLE "보통", HIGH "높음". (R-63, R-64, R-76)
+  - 주가 위치 카드: `subtitle` "전체 시장 SPY", `scoreText` "점수 · 표시 단계의 이름". (R-63)
+  - 금리 부담 카드: `subtitle` "실질금리 2.79%"(실질금리 값을 `percent`로), `scoreText` 같은 모양. (R-64, R-69)
+  - 눈금: 낮은 칸 폭 = (`lowBoundary` + 1) ÷ 100, 높은 칸 폭 = (100 - `highBoundary` + 1) ÷ 100, 가운데 칸 = 나머지. 기본값에서 0.31, 0.38, 0.31. 표시 자리 = 점수 ÷ 100. 칸 이름은 그 카드의 단계 이름 셋. (R-65, P-33)
+  - 숫자와 단계가 다른 날 안내: 점수로 정한 단계와 표시 단계가 다를 때만 있다. 표시 단계가 LOW면 "점수는 {점수}이지만 아직 '{표시 단계의 이름}'입니다. {lowBoundary + buffer + 1} 이상이 되어야 보통으로 바뀝니다.", HIGH면 "점수는 {점수}이지만 아직 '{표시 단계의 이름}'입니다. {highBoundary - buffer - 1} 이하가 되어야 보통으로 바뀝니다." 숫자는 판정에 실린 경계와 완충에서 낸다. (R-67)
+  - 주가 위치의 근거 두 줄: "200일 평균보다 {짧은 괴리} · 3년 평균보다 {긴 괴리}", "고점보다 {낙폭} · 3개월 전보다 {3개월 수익률}". 넷 모두 `signedPercent`. (R-68)
+  - 금리 부담의 근거 세 줄 (R-69, R-70)
+    - 첫 줄: 1년 전과의 차이를 `signedPercentPoint`로 적은 값이 0보다 크면 "1년 전보다 {차이} · 오르는 중", 작으면 "1년 전보다 {차이} · 내리는 중", 0이면 줄 전체가 "1년 전과 같음". 0인지는 적는 값(소수 두 자리로 반올림한 값)으로 가른다.
+    - 둘째 줄: "10년물 국채 {10년물} · 기준금리 {기준금리}". 값은 `percent`.
+    - 셋째 줄: "물가 {ratioPercent(상승률)} · 목표 {targetPercent(물가 목표)}%보다 {inflationGap(상승률, 물가 목표)} · {그 달}월 값".
+  - 날짜 붙이기: 실질금리(카드 이름 아래), 10년물, 기준금리 가운데 값의 날짜가 기준 날짜와 다른 것은 그 값 바로 뒤에 " · {월}월 {일}일 값"을 붙인다. 실질금리의 날짜는 `realYieldDate`다. 점수와 1년 전 줄에는 붙이지 않는다. 예: "실질금리 2.79% · 11월 21일 값", "10년물 국채 4.92% · 11월 21일 값 · 기준금리 3.88% · 11월 21일 값". 있는 `evidence_value_with_date`("%1$s · %2$d월 %3$d일 값")를 값 자리에 끼워 써도 된다. (R-70)
+- `strings.xml`에 문구를 더한다. 있는 문구는 바꾸지 않는다. 문구의 이름은 CLI가 정한다. (R-05, R-63~R-70)
+  - "지난 5년과 비교하면", "0은 지난 5년 중 가장 낮은 쪽, 100은 가장 높은 쪽", "장세의 근거"
+  - "주가 위치", "전체 시장 SPY", "금리 부담", "실질금리 %1$s"
+  - "%1$d · %2$s"
+  - "싼 편", "보통", "비싼 편", "낮음", "높음"
+  - "점수는 %1$d이지만 아직 '%2$s'입니다. %3$d 이상이 되어야 보통으로 바뀝니다.", "점수는 %1$d이지만 아직 '%2$s'입니다. %3$d 이하가 되어야 보통으로 바뀝니다."
+  - "200일 평균보다 %1$s · 3년 평균보다 %2$s", "고점보다 %1$s · 3개월 전보다 %2$s"
+  - "1년 전보다 %1$s · %2$s", "오르는 중", "내리는 중", "1년 전과 같음"
+  - "10년물 국채 %1$s · 기준금리 %2$s"
+  - "물가 %1$s · 목표 %2$s%%보다 %3$s · %4$d월 값"
 
 **테스트 지시**
-- 없음 (이 단위는 Android에 기대는 것뿐이다. 있던 테스트가 모두 통과해야 한다)
+아래 Given의 판정 값(점수, 단계, 금리 값 등)은 받아 둔 값과 규칙으로 만든다. 단위 3의 테스트 지시 머리의 방법(위치 기간 101, 평균 일수 1인 규칙)을 쓰면 원하는 점수를 만들기 쉽다. 글의 확인은 있던 테스트처럼 문구 리소스와 끼워 넣는 값으로 해도 된다.
 
-**확인 기준**
-- 컴파일 오류 없음, 있던 테스트 통과
-
-### 단위 2: 위젯에 보일 것 고르기와 받아 달라는 청 (Domain)
-
-**만들거나 고칠 것**
-- 신규 WidgetContent (feature/homewidget/domain)
-- 신규 WidgetRefreshButton (feature/homewidget/domain)
-- 신규 WidgetState (feature/homewidget/domain)
-- 신규 WidgetRefreshTrigger (feature/homewidget/domain)
-- 신규 WidgetRefreshCoordinator (feature/homewidget/domain)
-- 신규 ObserveWidgetStateUseCase (feature/homewidget/domain)
-- 신규 위 둘의 테스트 (`app/src/test/java/com/hak/hakbanggul/feature/homewidget/domain/`)
-
-**지시**
-- 이 단위는 순수 Kotlin이다. Android와 Glance, WorkManager를 가져오지 않는다. (P-02)
-- WidgetContent는 위젯이 보여 주는 것 셋이다(봉인 인터페이스): `Assessment(stage: MarketStage, asOfDate: LocalDate)` / `KeyGuide` / `NotReceived`. (R-05)
-- WidgetRefreshButton은 새로 고침 버튼 자리의 상태다(열거형): `ENABLED`(누를 수 있음) / `DISABLED`(비활성) / `IN_PROGRESS`(진행 표시). (R-37, R-39)
-- WidgetState는 위젯 하나에 보일 것이다: `WidgetState(content: WidgetContent, refreshButton: WidgetRefreshButton)`.
-- WidgetRefreshTrigger는 받아 달라고 청하게 된 까닭이다(열거형): `FIRST_PLACED`(첫 위젯을 놓음) / `PERIODIC`(약 6시간마다) / `MANUAL`(새로 고침을 누름).
-- WidgetRefreshCoordinator(앱 전체에 하나, `@Singleton`, `@Inject constructor(requestRefresh: RequestRefreshUseCase)`) (P-09, P-10)
-  - `val isManualRefreshing: StateFlow<Boolean>`: 새로 고침을 눌러 받는 중인지. 처음은 거짓. 메모리에만 두고 저장하지 않는다. 저장하면 받는 도중에 앱이 꺼졌을 때 참인 채로 남는다. (R-39, R-43, P-10)
-  - `suspend fun request(trigger: WidgetRefreshTrigger)`: 까닭에 맞는 조건으로 RequestRefreshUseCase를 부르고, 그것이 돌아올 때까지 기다린 뒤 돌아온다. (R-20, R-21, R-34, R-35, R-38)
-
-| 까닭 | 조건 | 결과를 쓰는 곳 |
-|---|---|---|
-| `FIRST_PLACED` | `WHEN_STALE` | 쓰지 않는다 |
-| `PERIODIC` | `WHEN_KEYS_AVAILABLE` | 쓰지 않는다 |
-| `MANUAL` | `WHEN_NOT_RECENTLY_STARTED` | `SKIPPED`면 1초 기다린 뒤 끝낸다. `REFRESHED`, `JOINED`면 돌아온 때 바로 끝낸다 |
-
-- 조건(6시간, 1분, 키)은 따지지 않는다. 시장 분위기가 따진다. 이미 받는 중이면 겹쳐 시작하지 않는 것도 시장 분위기가 한다. (R-34, R-35, P-10)
-- MANUAL이면: `isManualRefreshing`이 이미 참이면 아무것도 하지 않고 곧바로 돌아온다(청하지 않는다). 거짓이면 참으로 바꾸고 청한다. 보고 바꾸는 것은 한 번에 한다(두 MANUAL이 함께 와도 하나만 청한다). 끝날 때 거짓으로 되돌린다: 받지 않았으면(`SKIPPED`) 1초 뒤, 그 밖은 돌아온 때 바로. (R-39, R-40, R-41, R-42)
-- 어떻게 끝나든(받기 실패, 예외, 취소, 1초를 기다리는 중의 취소) `isManualRefreshing`을 거짓으로 되돌린다. (R-43, P-09)
-- FIRST_PLACED와 PERIODIC은 `isManualRefreshing`을 바꾸지 않는다.
-- 취소가 아닌 예외는 밖으로 던지지 않는다. 취소는 그대로 전한다.
-- ObserveWidgetStateUseCase(`@Inject constructor(observeMood: ObserveMoodUseCase, observeRefreshState: ObserveRefreshStateUseCase, apiKeyProvider: ApiKeyProvider, coordinator: WidgetRefreshCoordinator)`): `operator fun invoke(): Flow<WidgetState>`. 판정, 받는 중인지(`RefreshState.isRefreshing`만 쓴다), 출처마다의 키 쓸 수 있음 여부, `isManualRefreshing`을 합쳐 WidgetState를 내준다. (R-05, R-19, R-31, R-33, R-36, P-02, P-03, P-04)
-  - 키는 `ApiKeyProvider.observeAvailability(출처)`를 `DataSource.entries` 모두에 대해 받는다. 시장 분위기의 ObserveSourceKeysUseCase는 쓰지 않는다. (R-33, P-03)
-  - 표에서 고르는 것(위 행이 먼저): 출처 중 하나라도 `MISSING`이나 `INVALID` → `KeyGuide`. 판정이 있음(null이 아님) → `Assessment(displayedStage, asOfDate)`. 그 밖 → `NotReceived`. 판정의 다른 값(종합 점수, 계산 단계, 묶음)은 쓰지 않는다. (R-05, R-07, R-25, R-31)
-  - 그대로 두기: 받는 중(`isRefreshing` 참)이고 판정이 null이면, 표대로 고르지 않고 전에 내준 content를 그대로 둔다. 처음 내주는 값은 표대로다(받는 중이어도). (R-16, R-19, P-04)
-  - 받지 못함을 미루기: content가 `NotReceived`가 아니던 것에서 `NotReceived`로 바뀌는 것은 0.5초 뒤에도 여전히 `NotReceived`일 때에만 내준다. 그 사이에 다른 것으로 바뀌면 `NotReceived`는 내주지 않는다. 처음 내주는 값이 `NotReceived`면 기다리지 않는다. 키가 저장됐다는 것과 받기가 시작됐다는 것, 받기가 끝났다는 것과 새 판정이 나왔다는 것이 서로 다른 Flow로 와서 순서가 정해져 있지 않기 때문이다. (R-17, R-18, R-19, P-04)
-  - 버튼(위가 먼저): `isManualRefreshing` 참 → `IN_PROGRESS`. 내주는 content가 `KeyGuide` → `DISABLED`. 그 밖 → `ENABLED`. 버튼은 그대로 두기와 미루기를 거치지 않고 바로 바뀐다. (R-37, R-39, R-40)
-  - 판정의 Flow에서 예외가 나면 판정이 null인 것으로 보고, 다른 입력(키, 받는 중, 눌러 받는 중)의 변화에는 계속 반응한다. 내주는 Flow가 예외로 끝나지 않게 한다. (R-29, P-02)
-  - 같은 WidgetState를 잇달아 내주지 않는다.
-  - 받기가 실패해도 판정이 그대로면 content는 그대로다. 실패를 알리는 값은 두지 않는다(`lastFailure`는 쓰지 않는다). (R-27, R-42)
-  - 위젯은 값을 저장하지 않는다. 매번 시장 분위기와 설정이 내주는 값으로 만든다. (R-30)
-
-**테스트 지시**
-아래에서 따로 적지 않으면 상황은 이렇다: 진짜 ObserveMoodUseCase, RequestRefreshUseCase, ObserveRefreshStateUseCase를 시장 분위기의 테스트가 쓰는 가짜(`FakeMarketDataRepository`, `FakeMoodRulesRepository`, `FakeClock`, `MoodTestData`)와 `FakeApiKeyProvider`로 만들어 끼운다(받기 관리자는 `MarketMoodExposedUseCaseTest`처럼 만든다). 시계 2026-11-24T01:00:00Z, 두 출처의 키 AVAILABLE, 받아 둔 값은 데이터 A(`MoodTestData.dataA()`)이고 성공한 때 2026-11-24T00:00:00Z(1시간 전), 시작한 때 없음, 출처가 돌려주는 값도 데이터 A. 데이터 A의 판정은 표시 단계 BULL, 기준 날짜 2026-11-23이다. "받기를 붙잡아 둔다"는 가짜 저장소의 fetch가 테스트가 풀어 줄 때까지 돌아오지 않게 하는 것이고, "fetch 횟수"는 받기 한 번에 2다. 시간은 가상 시간이다. 가짜가 모자라면(예: 예외를 던지는 가짜) CLI가 더 만든다.
-
-WidgetRefreshCoordinator
-- R-20 (FIRST_PLACED의 조건)
-  - Given 성공한 때가 1시간 전 / When request(FIRST_PLACED) / Then fetch 횟수 0
-  - Given 성공한 때가 6시간 1분 전 / When request(FIRST_PLACED) / Then fetch 횟수 2
-  - Given 받아 둔 값 없음 / When request(FIRST_PLACED) / Then fetch 횟수 2
-- R-21 (PERIODIC의 조건)
-  - Given 성공한 때가 1분 전, 시작한 때가 10초 전 / When request(PERIODIC) / Then fetch 횟수 2
-  - Given FRED의 키 MISSING / When request(PERIODIC) / Then fetch 횟수 0
-- R-35, R-38 (MANUAL의 조건)
-  - Given 시작한 때가 1분 1초 전 / When request(MANUAL) / Then fetch 횟수 2
-  - Given 시작한 때가 꼭 1분 전 / When request(MANUAL) / Then fetch 횟수 0
-  - Given 시작한 때 없음 / When request(MANUAL) / Then fetch 횟수 2
-- R-34 (청하기만 하고, 앱에서 받는 중이면 겹치지 않음)
-  - Given 받아 둔 값 없음, 받기를 붙잡아 두고 받기 관리자의 `refresh()`로 받기를 시작함(fetch 횟수 2) / When request(PERIODIC)을 부르고 그 뒤 받기를 풀어 줌 / Then 풀어 주기 전에는 request가 돌아오지 않고, 풀어 준 뒤 돌아온다. fetch 횟수는 2 그대로이고, 저장은 한 번 불렸고, 받아 둔 값에 시리즈 여섯이 있다
-- R-39 (눌러 받는 중, 겹쳐 시작하지 않음, 이미 받는 중이면 그 받기가 끝날 때까지)
-  - Given 받기를 붙잡아 둠 / When 따로 띄운 코루틴에서 request(MANUAL), 그 뒤 받기를 풀어 줌 / Then 풀어 주기 전에는 `isManualRefreshing` 참이고 request가 돌아오지 않았다. 풀어 준 뒤 request가 돌아오고 `isManualRefreshing` 거짓
-  - Given 받기를 붙잡아 두고 request(MANUAL)이 기다리는 중 / When 다른 코루틴에서 request(MANUAL)을 한 번 더 / Then 둘째 request는 풀어 주기 전에 곧바로 돌아오고, fetch 횟수는 2 그대로, `isManualRefreshing`은 참 그대로다. 받기를 풀어 주면 거짓
-  - Given 받기를 붙잡아 두고 받기 관리자의 `refresh()`로 받기를 시작함(앱에서 받는 중) / When request(MANUAL), 그 뒤 받기를 풀어 줌 / Then 풀어 주기 전에는 `isManualRefreshing` 참, fetch 횟수 2 그대로. 풀어 준 뒤 request가 돌아오고 `isManualRefreshing` 거짓
-  - Given 받기를 붙잡아 둠 / When request(PERIODIC), 그 뒤 받기를 풀어 줌 / Then `isManualRefreshing`은 한 번도 참이 되지 않는다. FIRST_PLACED도 같다(받아 둔 값 없음으로 해서 받게 한다)
-- R-40
-  - Given request(MANUAL)로 받기를 마침, 출처가 데이터 A를 돌려줌 / When request가 돌아온 때 / Then `isManualRefreshing` 거짓
-- R-41 (받지 않았으면 1초 뒤에 풂)
-  - Given 시작한 때가 30초 전 / When request(MANUAL) / Then fetch 횟수 0. 부른 때부터 999ms에는 `isManualRefreshing` 참이고 request가 돌아오지 않았다. 1000ms에 거짓이 되고 request가 돌아온다
-  - Given Twelve Data의 키 MISSING / When request(MANUAL) / Then fetch 횟수 0. 999ms에 참, 1000ms에 거짓
-- R-42 (실패해도 풀림)
-  - Given 두 출처가 NO_CONNECTION으로 답함 / When request(MANUAL) / Then 예외 없이 돌아오고, 돌아온 때 `isManualRefreshing` 거짓이다(1초를 더 기다리지 않는다)
-- R-43 (예외나 취소로 끝나도 풀림)
-  - Given 받아 달라는 청이 예외(IllegalStateException)로 끝나게 함(예: 키의 Flow가 예외를 던지는 가짜 ApiKeyProvider) / When request(MANUAL) / Then 예외가 밖으로 나오지 않고, `isManualRefreshing` 거짓
-  - Given 받기를 붙잡아 두고 따로 띄운 코루틴에서 request(MANUAL) / When 그 코루틴을 취소함 / Then `isManualRefreshing` 거짓. 그 뒤 받기를 풀어 주면 받기는 끝까지 이어져 저장된다
-  - Given 시작한 때가 30초 전, 따로 띄운 코루틴에서 request(MANUAL) / When 500ms에 그 코루틴을 취소함 / Then `isManualRefreshing` 거짓
-
-ObserveWidgetStateUseCase
-- R-05, R-07, R-31, R-33, R-37 (표에서 고르기와 버튼)
-  - Given 기본 상황 / When 첫 값 / Then `WidgetState(Assessment(BULL, 2026-11-23), ENABLED)`
-  - Given FRED의 키 MISSING, 받아 둔 값은 데이터 A / When 첫 값 / Then `WidgetState(KeyGuide, DISABLED)`
-  - Given Twelve Data의 키 INVALID, 받아 둔 값은 데이터 A / When 첫 값 / Then `WidgetState(KeyGuide, DISABLED)`
-  - Given 두 출처의 키 MISSING, 받아 둔 값 없음 / When 첫 값 / Then `WidgetState(KeyGuide, DISABLED)`
-  - Given 받아 둔 값 없음 / When 첫 값 / Then `WidgetState(NotReceived, ENABLED)`
-  - Given 받아 둔 값이 데이터 A에서 SPY가 통째로 빠짐 / When 첫 값 / Then `WidgetState(NotReceived, ENABLED)`
-- R-16 (처음 값은 기다리지 않음)
-  - Given 받아 둔 값 없음 / When 모으기 시작 / Then 가상 시간이 흐르기 전(0ms)에 `NotReceived`가 나온다
-  - Given 받아 둔 값 없음, 받기를 붙잡아 두고 `refresh()`로 받기를 시작함 / When 모으기 시작 / Then 첫 값은 `NotReceived`다(받는 중이어도 처음 값은 표대로)
-- R-25 (표시 단계와 기준 날짜)
-  - Given 받아 둔 값이 데이터 A에서 2026-11-23 하루만 나쁜 날(`badDay("2026-11-23")`. 그날의 계산 단계는 NEUTRAL) / When 첫 값 / Then `Assessment(BULL, 2026-11-23)`
-- R-17, R-30, R-36 (판정이 바뀌면 상태가 바뀜)
-  - Given 받아 둔 값 없음으로 모으기 시작해 `NotReceived`가 나옴 / When 받아 둔 값을 데이터 A로 바꿈(받는 중 아님) / Then `Assessment(BULL, 2026-11-23)`이 이어서 나온다
-  - Given 기본 상황으로 모으기 시작 / When 받아 둔 값을 데이터 A에서 2026-11-19, 2026-11-20, 2026-11-23이 나쁜 날로 바꿈 / Then `Assessment(NEUTRAL, 2026-11-23)`이 이어서 나온다
-- R-18, R-28, R-36 (키의 상태가 바뀌면 상태가 바뀜)
-  - Given 기본 상황으로 모으기 시작 / When FRED의 키를 MISSING으로, 그 뒤 AVAILABLE로 / Then 차례로 `KeyGuide`(DISABLED), `Assessment(BULL, 2026-11-23)`(ENABLED). AVAILABLE로 돌아온 뒤 받기 관리자가 받기를 시작해도 판정이 있으므로 그대로 `Assessment`다
-  - Given 기본 상황으로 모으기 시작 / When Twelve Data의 키를 INVALID로 / Then `KeyGuide`, DISABLED
-- R-19 (값이 없는데 받는 중이면 그대로 두기)
-  - Given 받아 둔 값 없음, FRED의 키 MISSING으로 모으기 시작해 `KeyGuide`가 나옴, 받기를 붙잡아 둠 / When FRED의 키를 AVAILABLE로 바꾸고(받기 관리자가 받기를 시작한다) 2초 기다린 뒤 받기를 풀어 줌 / Then 풀어 주기 전까지 나온 content는 `KeyGuide` 하나뿐이다. 풀어 준 뒤 `Assessment(BULL, 2026-11-23)`가 나온다. `NotReceived`는 한 번도 나오지 않는다
-  - Given 위와 같고, 출처가 NO_CONNECTION으로 답함 / When 받기를 풀어 줌 / Then 풀어 준 때부터 499ms까지는 `KeyGuide` 그대로이고, 500ms에 `NotReceived`가 나온다
-  - Given 받아 둔 값 없음으로 모으기 시작해 `NotReceived`가 나옴, 받기를 붙잡아 두고 RequestRefreshUseCase(WHEN_KEYS_AVAILABLE)로 받기를 시작함 / When 받는 중에 FRED의 키를 MISSING으로 바꾸고, 그 뒤 받기를 풀어 줌(출처는 데이터 A를 돌려줌) / Then 풀어 주기 전에는 content가 `NotReceived` 그대로다. 풀어 준 뒤 `KeyGuide`가 나온다
-- R-19 (받지 못함으로 바뀌는 것을 미루기)
-  - Given 기본 상황으로 모으기 시작해 `Assessment`가 나옴 / When 받아 둔 값을 없음으로 바꿈(받는 중 아님) / Then 바꾼 때부터 499ms까지는 `Assessment` 그대로이고, 500ms에 `NotReceived`가 나온다
-  - Given 위와 같음 / When 받아 둔 값을 없음으로 바꾸고 300ms 뒤 데이터 A로 되돌림 / Then `NotReceived`는 한 번도 나오지 않는다
-- R-27 (실패해도 상태가 바뀌지 않음)
-  - Given 기본 상황으로 모으기 시작, 출처가 NO_CONNECTION으로 답함 / When RequestRefreshUseCase(WHEN_KEYS_AVAILABLE)로 받고, 끝난 뒤 1초 기다림 / Then 나온 content는 모두 `Assessment(BULL, 2026-11-23)`이다
-- R-29 (판정을 읽다 예외가 나면 값이 없는 것으로)
-  - Given 판정의 Flow가 예외(IllegalStateException)를 던짐(예: 규칙의 Flow가 예외를 던지는 가짜 규칙 저장소) / When 모으기 시작 / Then 예외 없이 `NotReceived`(ENABLED)가 나온다
-  - Given 위와 같이 `NotReceived`가 나옴 / When FRED의 키를 MISSING으로 / Then `KeyGuide`가 이어서 나온다
-- R-39, R-40 (버튼의 상태)
-  - Given 기본 상황으로 모으기 시작, 받기를 붙잡아 둠 / When 따로 띄운 코루틴에서 coordinator.request(MANUAL), 그 뒤 받기를 풀어 줌 / Then 풀어 주기 전에는 `WidgetState(Assessment(BULL, 2026-11-23), IN_PROGRESS)`. 풀어 준 뒤 `WidgetState(Assessment(BULL, 2026-11-23), ENABLED)`
-  - Given 받아 둔 값 없음으로 모으기 시작해 `NotReceived`가 나옴, 받기를 붙잡아 둠 / When coordinator.request(MANUAL), 2초 뒤 받기를 풀어 줌(출처는 데이터 A) / Then 풀어 주기 전에는 `WidgetState(NotReceived, IN_PROGRESS)`. 풀어 준 뒤 `WidgetState(Assessment(BULL, 2026-11-23), ENABLED)`
-  - Given 기본 상황, 시작한 때가 30초 전 / When coordinator.request(MANUAL) / Then 버튼이 `IN_PROGRESS`가 됐다가 1초 뒤 `ENABLED`로 돌아오고, content는 내내 `Assessment(BULL, 2026-11-23)`
+- R-69 (MoodTextFormatter)
+  - `ratioPercent`: 0.037 → `3.7%`, 0.04149 → `4.1%`, 0.0415 → `4.2%`, 0.0 → `0.0%`
+  - `inflationGap`: (0.041, 0.02) → `+2.1%p`, (0.018, 0.02) → `-0.2%p`, (0.0204, 0.02) → `0.0%p`, (0.0195, 0.02) → `0.0%p` (적는 상승률 2.0%에서 뺀다), (0.03, 0.025) → `+0.5%p`
+  - `targetPercent`: 0.02 → `2`, 0.025 → `2.5`
+- R-05 (판정의 구성): Given 받아 둔 값 데이터 A, 키 둘 AVAILABLE / When uiState / Then body는 Assessment이고 `pricePosition`, `rateBurden`이 모두 있다. Given 같은 값에 안내 띠가 있음(가장 최근 받기가 NO_CONNECTION) / Then banner와 두 카드가 함께 있다. Given 받는 중 / Then 두 카드가 그대로 있다
+- R-63, R-64 (이름 아래 글, 점수와 단계의 글): Given 데이터 A / When uiState / Then 주가 위치 `subtitle` "전체 시장 SPY", `scoreText` "50 · 보통". 금리 부담 `subtitle` "실질금리 2.00%", `scoreText` "50 · 보통"
+- R-66 (표시 단계를 상태에 실음): Given 주가 위치 표시 단계 LOW(점수 6), 금리 부담 표시 단계 HIGH(점수 98) / When uiState / Then `pricePosition.stage` LOW, `scoreText` "6 · 싼 편", `rateBurden.stage` HIGH, `scoreText` "98 · 높음". Given 주가 위치 HIGH(점수 74) / Then "74 · 비싼 편". Given 금리 부담 LOW(점수 22) / Then "22 · 낮음"
+- R-65 (칸 폭, 칸 이름, 표시 위치)
+  - Given 데이터 A(점수 50, 경계 30/70) / When uiState / Then 두 카드의 `segments`는 0.31, 0.38, 0.31, `position` 0.5. 주가 위치의 `labels` "싼 편", "보통", "비싼 편", 금리 부담의 `labels` "낮음", "보통", "높음"
+  - Given 경계 25/80으로 바꾼 규칙 / Then `segments`는 0.26, 0.53, 0.21
+  - Given 주가 위치 점수 0 / Then `position` 0.0. 점수 100 / Then 1.0
+- R-67 (줄을 보일지와 그 글)
+  - Given 주가 위치 점수 33, 점수로 정한 단계 MIDDLE, 표시 단계 LOW (경계 30/70, 완충 5) / When uiState / Then `pricePosition.notice`는 "점수는 33이지만 아직 '싼 편'입니다. 36 이상이 되어야 보통으로 바뀝니다."
+  - Given 금리 부담 점수 67, 점수로 정한 단계 MIDDLE, 표시 단계 HIGH / Then `rateBurden.notice`는 "점수는 67이지만 아직 '높음'입니다. 64 이하가 되어야 보통으로 바뀝니다."
+  - Given 금리 부담 점수 35, 표시 단계 LOW / Then "점수는 35이지만 아직 '낮음'입니다. 36 이상이 되어야 보통으로 바뀝니다."
+  - Given 경계 25/75, 완충 3인 규칙, 주가 위치 점수 28, 표시 단계 LOW / Then "… 29 이상이 되어야 보통으로 바뀝니다." 점수 73, 표시 HIGH / Then "… 71 이하가 되어야 보통으로 바뀝니다."
+  - Given 점수로 정한 단계와 표시 단계가 같음(데이터 A) / Then 두 카드의 `notice`는 null
+- R-68 (글)
+  - Given 짧은 괴리 +0.041, 긴 괴리 +0.214, 낙폭 -0.032, 3개월 수익률 +0.058 / When uiState / Then 주가 위치의 `evidence`는 "200일 평균보다 +4.1% · 3년 평균보다 +21.4%", "고점보다 -3.2% · 3개월 전보다 +5.8%"
+  - Given 데이터 A / Then "200일 평균보다 0.0% · 3년 평균보다 0.0%", "고점보다 0.0% · 3개월 전보다 0.0%"
+- R-69 (네 자리의 글)
+  - Given 실질금리 2.79(실질금리의 날 = 기준 날짜), 1년 전과의 차이 +0.97, 10년물 4.92, 기준금리 3.88(둘 다 기준 날짜), 물가 상승률 0.041 · 2026-10, 물가 목표 0.02 / When uiState / Then `subtitle` "실질금리 2.79%", `evidence`는 "1년 전보다 +0.97%p · 오르는 중", "10년물 국채 4.92% · 기준금리 3.88%", "물가 4.1% · 목표 2%보다 +2.1%p · 10월 값"
+  - Given 차이 -0.18 / Then 첫 줄 "1년 전보다 -0.18%p · 내리는 중"
+  - Given 차이 0 / Then 첫 줄 "1년 전과 같음". Given 차이 +0.004 / Then "1년 전과 같음". Given 차이 +0.005 / Then "1년 전보다 +0.01%p · 오르는 중"
+  - Given 물가 상승률 0.018 · 2026-09 / Then 셋째 줄 "물가 1.8% · 목표 2%보다 -0.2%p · 9월 값"
+  - Given 데이터 A / Then "1년 전과 같음", "10년물 국채 4.00% · 기준금리 3.50%", "물가 3.0% · 목표 2%보다 +1.0%p · 10월 값"
+- R-70 (날짜를 붙일지와 그 글)
+  - Given 기준 날짜 2026-11-23, 실질금리의 날 2026-11-21, 10년물 2026-11-21, 기준금리 2026-11-21 / When uiState / Then `subtitle` "실질금리 2.79% · 11월 21일 값", 둘째 줄 "10년물 국채 4.92% · 11월 21일 값 · 기준금리 3.88% · 11월 21일 값". 첫 줄과 `scoreText`에는 날짜가 없다
+  - Given 기준금리만 2026-11-20 / Then `subtitle`은 "실질금리 2.79%", 둘째 줄 "10년물 국채 4.92% · 기준금리 3.88% · 11월 20일 값"
+- 있던 ViewModel 테스트가 모두 통과한다(받아 둔 값이 데이터 A, B이고 규칙이 시험용 규칙이면 장세의 글은 전과 같다)
 
 **확인 기준**
 - 테스트 통과, 컴파일 오류 없음
 
-### 단위 3: 위젯의 상태 만들기
+### 단위 5: 공용 테마와 화면
 
 **만들거나 고칠 것**
-- 신규 HomeWidgetUiState (feature/homewidget/presentation)
-- 신규 HomeWidgetStateHolder (feature/homewidget/presentation)
-- 신규 HomeWidgetStateHolder의 테스트 (`app/src/test/java/com/hak/hakbanggul/feature/homewidget/presentation/`)
+- 수정 AppColors, AppTypography, AppDimens (core/ui/theme)
+- 수정 MarketMoodScreen (feature/marketmood/presentation)
 
 **지시**
-- HomeWidgetUiState는 위젯에 그릴 것이다. 위젯은 이것만 보고 그린다. (R-06, R-07, R-08, R-11)
-  - `HomeWidgetUiState(title: UiText, main: WidgetMain, refreshButton: WidgetRefreshButton)`
-  - `WidgetMain`(봉인 인터페이스): `Stage(stage: MarketStage, name: UiText, asOfText: UiText)` / `Message(text: UiText, openAppHint: UiText)`
-  - `stage`는 위젯이 단계의 색을 고르는 데 쓴다.
-  - `openAppHint`는 큰 위젯만 그린다. 작은 위젯은 그리지 않는다. (R-11)
-- WidgetState에서 HomeWidgetUiState로 바꾸는 것 (R-06, R-07, R-08, R-11, R-26)
+- 공용 테마에 매매 판단의 값을 더한다. 값은 시안에서 뽑은 것이고 1px = 1dp(글자는 1sp)로 옮긴다. 있는 값은 바꾸지 않는다. 홈 화면 위젯도 다음 변경에서 이 색을 쓴다. (R-66, R-19, P-17)
+  - AppColors에 더할 것. 값이 있는 색과 같아도 쓰는 곳이 달라 따로 둔다.
+    - 단계의 글(점수와 단계 이름): 싼 편·낮음 `#0E7C6B`, 보통 `#4A5360`, 비싼 편·높음 `#B45309`
+    - 눈금의 세 칸: 싼 편·낮음 `#5FB8A8`, 보통 `#B7BEC8`, 비싼 편·높음 `#E9A23B`
+  - AppTypography에 더할 것: 매매 판단 카드의 점수와 단계 22 Bold, 매매 판단 제목 아래 한 줄 12 Normal
+  - AppDimens에 더할 것: 두 제목 덩어리의 위 여백 8, 좌우 여백 4. 매매 판단 카드의 안쪽 여백 16(네 쪽). 근거 줄 덩어리의 위 여백 10(그 위에 구분선)
+  - 있는 값을 쓰는 곳: 제목 15 Bold `bodyBold`, 카드 이름 17 Bold `groupName`, 카드 이름 아래 글과 근거 줄 13 `caption`(색 `textMuted`), 눈금 아래 이름 `gaugeLabel`, 안내 줄 `captionNotice`와 안내 상자(`background`, `AppShapes.notice`, `noticePaddingVertical` 10, `noticePaddingHorizontal` 12), 카드 사이와 제목 사이 `cardGap` 16, 카드 안의 덩어리 사이 `assessmentGap` 12, 이름과 그 아래 글 사이·제목과 그 아래 줄 사이·근거 줄 사이 `nameGap` 2, 이름 쪽과 점수 사이 `rowContentGap` 12, 구분선 `divider` 1 `border`, 눈금의 크기(`gaugeHeight` 18, `gaugeBarTop` 4, `gaugeBarHeight` 10, `gaugeMarkerWidth` 4, `gaugeMarkerOutline` 2, `gaugeLabelGap` 6, `AppShapes.gaugeBarRadius` 5, `gaugeMarkerRadius` 2), 카드 바탕·테두리·모서리
+- MarketMoodScreen은 판정 안에 위에서 아래로 종합 판정 카드, "지난 5년과 비교하면" 제목과 그 아래 "0은 지난 5년 중 가장 낮은 쪽, 100은 가장 높은 쪽", 주가 위치 카드, 금리 부담 카드, "장세의 근거" 제목, 묶음 카드들, 맨 아래 안내를 그린다. 종합 판정 카드, 묶음 카드, 맨 아래 안내, 위쪽 줄, 안내 띠와 다른 본문(키 안내, 받는 중, 받지 못함)은 바꾸지 않는다. 받은 상태를 그리기만 하고, 글을 고르거나 숫자를 바꾸는 일을 여기에 두지 않는다. (R-05, R-63, R-64, R-65, R-66, R-67, R-68, R-69, R-70)
+- 시안 `https://claude.ai/artifact/LuRSF8bSPDqruAbnUSfye9`의 아래 화면과 같은 모양으로 만든다. 모양의 값(색, 크기, 간격, 모서리)은 시안의 HTML에서 가져오되, 위 테마에 있는 값은 테마의 것을 쓴다. 문구와 동작은 이 지시의 글이 맞다. 시안의 숫자와 날짜는 예시다. (R-19)
 
-| content | title | main |
+| 시안의 화면 이름 | 시안 안의 파일 | 이번에 보는 것 |
 |---|---|---|
-| `Assessment(stage, asOfDate)` | "지금 장은" | `Stage(stage, 단계 이름, "M월 D일 종가")` |
-| `KeyGuide` | "학반꿀" | `Message("키를 넣어 주세요", "눌러서 앱 열기")` |
-| `NotReceived` | "학반꿀" | `Message("데이터를 받지 못했습니다", "눌러서 앱 열기")` |
+| 시장 분위기 · 판정이 나왔을 때 | `project/Market-Main.dc.html` | 두 제목과 두 카드의 배치. 비싼 편·높음의 색 |
+| 시장 분위기 · 장세와 종합 점수가 다른 날 | `project/Market-Pending.dc.html` | 다른 날 안내가 있어도 두 카드가 그대로 있음 |
+| 시장 분위기 · 새로 받지 못했을 때 | `project/Market-Stale.dc.html` | 안내 띠가 있을 때. 주가 위치 보통의 색 |
+| 시장 분위기 · 중립인 날 | `project/Market-Neutral.dc.html` | 두 카드 모두 보통의 색 |
+| 시장 분위기 · 물장인 날 | `project/Market-Bear.dc.html` | 싼 편·낮음의 색, 음수의 근거 숫자 |
+| 시장 분위기 · 매매 판단의 숫자와 단계가 다른 날 | `project/Market-Buffer.dc.html` | 두 카드의 안내 줄(눈금과 근거 사이의 회색 상자) |
+| 시장 분위기 · 금리 값의 날짜가 다르고 1년 전과 같은 날 | `project/Market-RateDate.dc.html` | 날짜가 붙은 실질금리, 두 줄로 넘어가는 10년물·기준금리 줄, "1년 전과 같음" |
 
-- 단계 이름: BULL "불장", NEUTRAL "중립", WEAK "약세", BEAR "물장" (`stage_*`). (R-06)
-- 기준 날짜는 단위 1에서 더한 "%1$d월 %2$d일 종가"에 월과 일을 넣는다. 해는 넣지 않는다. 날짜는 판정의 `asOfDate` 그대로다(시간대를 바꾸지 않는다). (R-26)
-- `refreshButton`은 WidgetState의 것을 그대로 옮긴다.
-- HomeWidgetStateHolder(앱 전체에 하나, `@Singleton`, `@Inject constructor(observeWidgetState: ObserveWidgetStateUseCase, @ApplicationScope scope: CoroutineScope)`) (R-03, R-16, P-05)
-  - `val state: StateFlow<HomeWidgetUiState?>`: 만들어질 때부터 앱 범위에서 ObserveWidgetStateUseCase를 한 번만 모아 바꿔 들고 있다. 첫 값이 나오기 전에는 null이다.
-  - 위젯마다, 그릴 때마다 UseCase를 새로 모으지 않는다. 놓인 위젯이 모두 같은 값을 받고, 그대로 두는 동안에 새로 놓은 위젯도 그대로 두고 있는 것을 받게 하기 위함이다. (R-03, R-16, P-05)
-  - Android의 Context를 받지 않는다(글자는 UiText로 둔다).
-
-**테스트 지시**
-상황은 단위 2의 테스트와 같다. HomeWidgetStateHolder를 진짜 ObserveWidgetStateUseCase와 테스트의 범위로 만든다. 단계와 날짜를 판정 데이터로 만들기 어려운 경우(WEAK, BEAR, 1월 5일 등)는 WidgetState를 HomeWidgetUiState로 바꾸는 부분을 따로 불러 확인해도 된다. 방법은 CLI가 정한다.
-
-- R-06 (첫 줄, 단계 이름, 날짜 줄의 글)
-  - Given 기본 상황 / When state의 첫 null 아닌 값 / Then title `mood_now`, main `Stage(BULL, stage_bull, "%1$d월 %2$d일 종가"에 [11, 23])`, refreshButton ENABLED
-  - Given content가 NEUTRAL, WEAK, BEAR인 Assessment / When 바꿈 / Then 단계 이름이 차례로 `stage_neutral`, `stage_weak`, `stage_bear`이고 `stage`도 그 단계다
-- R-07
-  - Given FRED의 키 MISSING / When 첫 값 / Then title `app_name`, main `Message(key_guide_title, "눌러서 앱 열기")`, refreshButton DISABLED
-- R-08
-  - Given 받아 둔 값 없음 / When 첫 값 / Then title `app_name`, main `Message(mood_failed_title, "눌러서 앱 열기")`, refreshButton ENABLED
-- R-11 (마지막 줄의 글)
-  - 위 R-06의 Stage에는 날짜가, R-07·R-08의 Message에는 "눌러서 앱 열기"가 있다(위 경우로 확인한다)
-- R-26
-  - Given `Assessment(BULL, 2026-01-05)` / When 바꿈 / Then asOfText의 args가 [1, 5]이다(해가 없다)
-  - Given `Assessment(BULL, 2026-12-31)` / When 바꿈 / Then args가 [12, 31]
-- R-03 (모두 같은 값)
-  - Given 기본 상황, HomeWidgetStateHolder 하나 / When state를 두 곳에서 모으고, 받아 둔 값을 데이터 A에서 2026-11-19, 2026-11-20, 2026-11-23이 나쁜 날로 바꿈 / Then 두 곳이 받는 값이 늘 같고, 둘 다 `stage_neutral`로 바뀐다. ObserveWidgetStateUseCase는 한 번만 모아진다
-- R-16 (그대로 두는 동안 새로 모으는 곳도 같은 것을 받음)
-  - Given 받아 둔 값 없음, FRED의 키 MISSING으로 state가 KeyGuide의 상태가 됨, 받기를 붙잡아 둠 / When FRED의 키를 AVAILABLE로 바꾸고 2초 뒤 state를 새로 모으기 시작 / Then 새로 모은 곳의 첫 값은 KeyGuide의 상태(title `app_name`, `key_guide_title`)다. 받기를 풀어 주면(출처는 데이터 A) 두 곳 모두 `Stage(BULL, …)`가 된다
-- R-30 (받아 둔 값을 바꾸면 위젯의 상태가 따라 바뀜)
-  - Given 받아 둔 값 없음으로 state가 받지 못함의 상태가 됨 / When 받아 둔 값을 데이터 A로 바꿈 / Then state가 `Stage(BULL, stage_bull, [11, 23])`로 바뀐다
+- 두 제목은 카드가 아니다: 바탕 없이 위 여백 8, 좌우 여백 4, 제목 15 Bold `text`, 그 아래 한 줄 12 `textMuted`(사이 2). "장세의 근거"에는 아래 줄이 없다.
+- 매매 판단 카드: 흰 카드(테두리 1, 모서리 16, 안쪽 여백 16), 안의 덩어리 사이 12. 위에서 아래로 머리(왼쪽에 이름 17 Bold와 그 아래 13 `textMuted`, 오른쪽에 점수와 단계 22 Bold, 단계의 색, 한 줄로), 눈금, 안내 줄(있을 때만), 근거 줄(위에 구분선 1, 그 아래 여백 10, 줄 사이 2, 13 `textMuted`).
+- 머리의 왼쪽과 오른쪽은 세로 가운데에 맞춘다(시안의 `align-items: center`). 묶음 카드의 머리와 같다.
+- 눈금은 종합 판정 카드의 눈금과 같은 크기와 모양(막대, 둥근 끝, 흰 테가 둘린 표시, 아래 칸 이름)이고, 칸이 셋이며 칸의 폭은 상태의 `segments`를 따른다. 칸 이름은 칸마다 가운데에 둔다. 종합 판정 카드의 눈금을 칸 폭과 색을 받게 고쳐 함께 써도 된다. 종합 판정 카드의 모양은 바꾸지 않는다.
+- 근거 줄이 화면 폭보다 길면 다음 줄로 넘어간다(시안 "금리 값의 날짜가 다르고 1년 전과 같은 날"의 10년물·기준금리 줄).
+- 점수와 단계의 색은 표시 단계의 색이다. 눈금의 칸 색은 칸의 단계 색이다(표시 단계와 상관없음).
+- 미리보기를 맞춘다: 판정이 보이는 있던 미리보기에 두 카드의 상태를 채우고, 시안 "매매 판단의 숫자와 단계가 다른 날"과 "금리 값의 날짜가 다르고 1년 전과 같은 날"의 미리보기를 더한다. 그런 날이 아닐 때 수동 확인을 미리보기로 하기 위함이다. (R-67, R-70)
 
 **확인 기준**
 - 테스트 통과, 컴파일 오류 없음
-
-### 단위 4: 위젯 그리기와 뒤에서 받기
-
-**만들거나 고칠 것**
-- 신규 MoodWidgetLayout (feature/homewidget/presentation)
-- 신규 SmallMoodWidget, LargeMoodWidget (feature/homewidget/presentation)
-- 신규 SmallMoodWidgetReceiver, LargeMoodWidgetReceiver (feature/homewidget/presentation)
-- 신규 RefreshWidgetAction (feature/homewidget/presentation)
-- 신규 WidgetRefreshWorker (feature/homewidget/presentation)
-- 신규 WidgetRefreshScheduler (feature/homewidget/presentation)
-- 신규 HomeWidgetUpdater (feature/homewidget/presentation)
-- 신규 HomeWidgetEntryPoint (feature/homewidget/di)
-- 신규 위젯 정보 `app/src/main/res/xml/widget_small_info.xml`, `widget_large_info.xml`
-- 신규 미리 보기 레이아웃 `app/src/main/res/layout/widget_small_preview.xml`, `widget_large_preview.xml`
-- 신규 진행 표시 레이아웃 (`app/src/main/res/layout/`. ProgressBar와 단위 1의 진행 표시 그림을 돌리는 것. 파일 이름은 CLI가 정한다)
-- 수정 `app/src/main/AndroidManifest.xml` (두 Receiver)
-
-**지시**
-- 위젯의 모양
-  - 작은 위젯은 시안 `https://claude.ai/artifact/LuRSF8bSPDqruAbnUSfye9`의 "위젯 · 작은 위젯 (2×1)"(파일 `project/Widget-Small.dc.html`), 큰 위젯은 같은 시안의 "위젯 · 큰 위젯 (2×2)"(파일 `project/Widget-Square.dc.html`)과 같은 모양으로 만든다. 모양의 값(색, 크기, 간격, 모서리)은 시안의 HTML에서 가져오되, 단위 1에서 테마에 더한 값을 쓴다. 문구와 동작은 이 지시의 글이 맞다. (R-13)
-  - 시안 한 장에 그 위젯의 일곱 모습이 나란히 있다: 불장·중립·약세·물장인 날, 키가 없거나 틀릴 때(KeyGuide), 받지 못했을 때(NotReceived), 새로 고침을 눌러 받는 중(IN_PROGRESS). 받지 못함에서 눌러 받는 중인 모습은 따로 그려져 있지 않다. 받는 중 모습처럼 버튼 자리만 진행 표시로 바뀌고 나머지는 그대로다. (R-13, R-39)
-  - 시안의 회색 바탕(#DDE1E7)과 위젯 아래의 설명 글("불장인 날" 등, #3A424D)은 시안을 읽기 위한 것이다. 위젯에 넣지 않고 테마에도 더하지 않는다. 시안의 날짜(11월 23일)는 예시다. (R-13)
-  - 시안의 위젯 크기(172×84, 172×172)는 한 예다. 실제 크기는 홈 화면 앱이 칸에 맞춰 정한다. 위젯은 받은 크기를 채우고, 여백, 글자 크기, 버튼 자리의 크기와 자리만 시안을 따른다.
-  - 카드: 단위 1의 카드 바탕 그림을 받은 크기에 꽉 차게 깐다. (R-05, P-12)
-  - 작은 위젯: 줄들이 위아래로 붙어 카드 세로 가운데에 모인다. 판정은 첫 줄("지금 장은"), 단계 이름, 날짜 줄의 세 줄이고 줄 사이 여백이 없다. KeyGuide와 NotReceived는 첫 줄("학반꿀")과 안내 문구 두 줄이고 사이가 2다. "눌러서 앱 열기"는 그리지 않는다. 글은 왼쪽 정렬이다. (R-10, R-11)
-  - 큰 위젯: 첫 줄이 위쪽 끝, 마지막 줄이 아래쪽 끝, 단계 이름이나 안내 문구가 그 사이 가운데에 놓인다(시안의 `space-between`). 마지막 줄은 판정이면 날짜, KeyGuide와 NotReceived면 "눌러서 앱 열기"다. 글은 왼쪽 정렬이다. (R-11)
-  - 단계 이름은 단계의 색으로 적는다: BULL `stageBull`, NEUTRAL `stageNeutral`, WEAK `stageWeak`, BEAR `stageBear`. 앱의 시장 분위기 화면과 같은 테마 값이다. 단계에서 색을 고르는 코드는 시장 분위기의 Presentation에서 가져오지 않고 위젯 쪽에 둔다. (R-06, R-32)
-  - 안내 문구("키를 넣어 주세요", "데이터를 받지 못했습니다")는 한 줄에 들어가지 않으면 낱말 사이(띄어쓰기)에서만 줄을 바꾼다. Android의 기본 줄 바꿈은 한글 낱말 가운데에서도 바꿀 수 있으므로(예: "데이터를 받지 못했습" / "니다") 그렇게 되지 않게 해야 한다. 방법은 CLI가 정하고 DECISION으로 남긴다. (R-09)
-  - 새로 고침 버튼 자리: 카드의 오른쪽 위에 단위 1의 크기와 자리로 둔다(카드 안쪽 여백과 상관없이 카드 끝에서 잰다). 자리 가운데에 상태에 따라 하나를 그린다: ENABLED 아이콘(#4A5360), DISABLED 아이콘(#B7BEC8), IN_PROGRESS 도는 진행 표시. 진행 표시는 Glance의 기본 진행 표시가 아니라, 단위 1의 진행 표시 그림을 ProgressBar 레이아웃으로 돌려 끼운다(기본 진행 표시는 바탕 고리와 선 굵기를 정할 수 없다). 아이콘의 설명은 "새로 고침", 진행 표시의 설명은 "받는 중"이다. (R-37, R-39, P-12)
-  - 색은 모두 고정 값으로 준다. 기기가 어두운 화면이어도 바뀌지 않는다. (R-12, P-12)
-  - 두 위젯이 함께 쓰는 조각(카드 바탕, 버튼 자리, 글 한 줄)은 MoodWidgetLayout에 둔다. (P-01)
-- 누름 (R-14, R-37, R-38, R-39, P-14, P-15)
-  - 버튼 자리 밖(카드 어디든)을 누르면 `AppLaunchIntents.marketMood(context)`로 앱을 연다. 위젯이 무엇을 보여 주든 같다.
-  - 버튼 자리를 누르면: ENABLED면 RefreshWidgetAction. DISABLED와 IN_PROGRESS면 누름을 받아 아무 일도 하지 않는다(앱도 열지 않는다). 누름을 받지 않게 두면 카드의 앱 열기로 넘어가기 때문이다.
-- SmallMoodWidget, LargeMoodWidget(GlanceAppWidget) (R-03, R-05, R-16, P-05, P-11)
-  - HomeWidgetStateHolder의 `state`를 받아 그린다. null이 아닌 첫 값이 나올 때까지 기다린 뒤 그린다. 위젯은 판정, 형식 바꾸기, 문구 고르기를 하지 않는다(단계 → 색 고르기와 UiText를 글자로 푸는 것만 한다).
-  - 글자는 단위 1의 `UiText.asString(context)`로 푼다.
-- SmallMoodWidgetReceiver, LargeMoodWidgetReceiver(GlanceAppWidgetReceiver): 그 위젯의 첫 개가 놓이면(`onEnabled`) `WidgetRefreshScheduler.onWidgetPlaced()`, 마지막 개가 치워지면(`onDisabled`) `WidgetRefreshScheduler.onWidgetRemoved()`. (R-20, R-23, P-08)
-- RefreshWidgetAction(Glance ActionCallback): `WidgetRefreshScheduler.requestManualRefresh()`만 부르고 돌아온다. 여기서 받기를 기다리지 않는다. 이 자리는 시스템이 10초쯤만 기다려 준다. (R-38, P-07)
-- WidgetRefreshWorker(CoroutineWorker) (R-20, R-21, R-27, R-38, R-43, P-07)
-  - 입력으로 WidgetRefreshTrigger의 이름을 받는다.
-  - `WidgetRefreshCoordinator.request(trigger)`를 부르고 기다린 뒤, `HomeWidgetUpdater.updateAll()`로 놓인 위젯을 다시 그리고 끝낸다. MANUAL이면 다시 그리는 것은 `HomeWidgetStateHolder.state`에 진행 표시가 풀린 것(버튼이 IN_PROGRESS가 아님)이 반영된 뒤에 한다. 기다리는 방법은 CLI가 정한다.
-  - 받기가 실패해도, 취소가 아닌 예외가 나도 `Result.success()`로 끝낸다. 실패를 알려 다시 돌리게 하면 한도를 넘은 때에 요청이 더 나간다. 다음 차례는 주기 작업이다.
-  - 작업 도중에 앱이 꺼져 시스템이 다시 돌리면, MANUAL은 1분 조건에 걸려 받지 않고 1초 뒤 진행 표시가 풀린 채로 다시 그려진다. 따로 할 것은 없다.
-- WidgetRefreshScheduler(`@Singleton`, `@Inject constructor(@ApplicationContext context: Context)`) (R-20, R-21, R-22, R-23, R-24, R-38, P-07, P-08, P-09)
-  - `fun onWidgetPlaced()`: 주기 작업(6시간마다, 인터넷 연결 조건, PERIODIC)을 이름 하나로 넣되 이미 있으면 그대로 둔다. FIRST_PLACED 작업(한 번, 인터넷 연결 조건)을 넣는다. 연결이 없으면 돌지 않고 연결이 돌아온 뒤에 돈다.
-  - `suspend fun onWidgetRemoved()`: 놓인 작은 위젯과 큰 위젯을 합쳐 세어 하나도 없을 때에만 주기 작업을 뺀다.
-  - `fun requestManualRefresh()`: MANUAL 작업(한 번, 조건 없음)을 넣는다. 같은 작업이 있거나 돌고 있으면 넣지 않는다. 연결 조건을 붙이지 않는 것은 연결이 없을 때 누르면 곧 실패해 버튼으로 돌아오게 하기 위함이다. 누른 뒤 곧 돌게 한다(기기가 절전 중이어도 사용자가 누른 것이므로). 방법은 CLI가 정한다.
-  - `suspend fun syncPeriodic()`: 놓인 위젯이 있으면 주기 작업을 넣고(이미 있으면 그대로), 없으면 뺀다. 시스템의 알림(`onEnabled`, `onDisabled`)을 놓친 경우에 대비해 프로세스가 시작될 때 부른다(단위 5).
-  - 작업의 이름은 Glance가 쓰는 작업 이름과 겹치지 않게 정한다.
-  - 기기를 껐다 켠 뒤에 주기 작업이 이어지는 것은 WorkManager가 스스로 한다. 따로 적어 두지 않는다. (R-24)
-- HomeWidgetUpdater(`@Singleton`, `@Inject constructor(@ApplicationContext context: Context, stateHolder: HomeWidgetStateHolder, @ApplicationScope scope: CoroutineScope)`) (R-17, R-18, R-24, R-39, R-40, R-43, P-06)
-  - `fun start()`: 앱 범위에서 HomeWidgetStateHolder의 `state`를 모아, null이 아닌 값이 나오거나 바뀔 때마다 놓인 두 위젯을 모두 다시 그리게 한다. 처음 null이 아닌 값이 나온 때에도 한 번 그린다. 그래서 받는 중에 앱이 꺼져 진행 표시가 그려진 채 남았더라도, 앱이 다시 깨어나는 때에 버튼으로 돌아온다. 여러 번 불려도 한 번만 모은다.
-  - `suspend fun updateAll()`: 놓인 두 위젯을 지금 상태로 다시 그린다.
-  - 위젯 정보의 갱신 주기(시스템이 정한 주기로 다시 그리기)는 쓰지 않는다.
-- HomeWidgetEntryPoint(Hilt EntryPoint, SingletonComponent): HomeWidgetStateHolder, WidgetRefreshCoordinator, WidgetRefreshScheduler, HomeWidgetUpdater를 내준다. 시스템이 만드는 것(위젯, Receiver, ActionCallback, Worker)은 모두 이것 하나로 받는다. 그 뒤의 클래스는 모두 생성자로 받는다. (P-11)
-- 위젯 정보(appwidget-provider) (R-01, R-02, R-04, P-06, P-13)
-  - 작은 위젯 가로 2칸 세로 1칸, 큰 위젯 가로 2칸 세로 2칸. Android 12 이상의 칸 수와 그보다 낮은 버전의 최소 크기를 모두 적는다.
-  - 크기를 바꿀 수 없다(`resizeMode` 없음).
-  - 시스템이 정한 주기로 다시 그리지 않는다(`updatePeriodMillis` 0).
-  - 미리 보기 레이아웃(`previewLayout`)으로 아래 미리 보기를 쓴다. 그보다 낮은 버전용 그림 파일(`previewImage`)은 두지 않는다.
-  - 홈 화면에만 놓는다.
-- 미리 보기 레이아웃: 그 위젯의 불장인 날의 판정 모습(시안의 첫 모습)을 보통 View로 그린다. 카드 바탕, "지금 장은", 빨간 "불장", 미리 보기의 기준 날짜("11월 23일 종가"), 오른쪽 위의 누를 수 있는 새로 고침 아이콘. 값은 위 위젯과 같다. Android 12 이상에서 보인다. (R-02, P-13)
-- `AndroidManifest.xml`: 두 Receiver를 적는다. 각각 위젯 갱신 알림을 받고, 위젯 정보 파일을 가리키며, 고르는 목록의 이름은 "장세 (작게)", "장세 (크게)"다. 다른 곳은 단위 5에서 고친다. (R-01)
-
-**테스트 지시**
-- 없음 (Glance, WorkManager, 시스템 접점이라 기기에서만 보인다. 수동 확인으로 본다. 있던 테스트와 단위 2·3의 테스트가 모두 통과해야 한다)
-
-**확인 기준**
-- 컴파일 오류 없음, 있던 테스트 통과
-
-### 단위 5: 앱 열기와 프로세스 시작
-
-**만들거나 고칠 것**
-- 수정 HakBanGgulApp (맨 위 패키지)
-- 수정 MainActivity (맨 위 패키지)
-- 수정 AppNavHost (맨 위 패키지)
-- 수정 `app/src/main/AndroidManifest.xml` (MainActivity)
-
-**지시**
-- HakBanGgulApp: 프로세스가 시작될 때 `HomeWidgetUpdater.start()`를 부르고, 앱 범위에서 `WidgetRefreshScheduler.syncPeriodic()`을 부른다. 받기는 시작하지 않는다. (R-24, R-43, P-06, P-08)
-- MainActivity: 열릴 때(`onCreate`)와 이미 열려 있는데 다시 불릴 때, 받은 Intent에 `AppLaunchIntents.showsMarketMood`의 표시가 있으면 AppNavHost에 시장 분위기 화면을 보이라고 알린다. 같은 Intent로 두 번 알리지 않는다(화면을 돌려 다시 만들어질 때 등). (R-14, R-15, P-14)
-- AppNavHost: 그 알림을 받으면 시장 분위기 화면 위에 쌓인 화면(설정)을 걷어 시장 분위기 화면이 보이게 한다. 이미 시장 분위기 화면이면 아무것도 하지 않는다. 알림을 어떤 모양으로 받을지는 CLI가 정한다. 설정 화면에서 키를 확인하는 중이었으면 화면을 벗어난 것과 같고, 확인은 이어진다(설정의 동작 그대로). (R-15)
-- `AndroidManifest.xml`: MainActivity가 이미 열려 있으면 새로 만들지 않고 그것을 다시 부르게 한다. 그 밖의 MainActivity 설정은 그대로 둔다. (R-15, P-14)
-- 시장 분위기와 설정의 화면과 동작은 바뀌지 않는다. 바뀌는 것은 위젯에서 열었을 때 설정 화면이 걷히는 것뿐이다.
-
-**테스트 지시**
-- 없음 (수동 확인으로 본다. 있던 테스트가 모두 통과해야 한다)
-
-**확인 기준**
-- 컴파일 오류 없음, 있던 테스트 통과
 
 ## 3. 수동 확인
 
-- 날짜가 바뀌는 것으로 보는 항목은 새 종가가 나온 뒤에 본다. 미국 장이 하루 열리고 닫힌 뒤(한국 시각으로 다음 날 아침 이후)다. 주말과 미국 휴장일에는 날짜가 바뀌지 않는다.
-- R-21, R-23, R-24는 하루를 넘겨야 보인다. 한 번에 볼 수 있게 이어서 한다: 위젯을 놓은 날 R-23의 치우고 다시 놓기와 R-24의 기기 껐다 켜기를 하고, 앱을 열지 않은 채 다음 날 위젯의 날짜를 본다.
-
-- R-01: Given 앱을 설치함 / When 홈 화면에서 위젯을 고르는 목록을 연다 / Then 학반꿀 아래에 "장세 (작게)"와 "장세 (크게)" 둘이 따로 보인다
-- R-02: Given Android 12 이상 기기 / When 위젯을 고르는 목록에서 두 위젯을 본다 / Then 각 미리 보기가 그 위젯의 불장인 날 모습("지금 장은", 빨간 "불장", "11월 23일 종가", 오른쪽 위 새로 고침 아이콘)이다
-- R-03 (여러 개 놓기): Given 키가 저장되어 있고 받아 둔 값이 있음 / When 작은 위젯 둘과 큰 위젯 하나를 함께 놓는다 / Then 셋 모두 놓이고 같은 단계와 날짜를 보여 준다
-- R-04: Given 위젯을 놓음 / When 위젯을 길게 누른다 / Then 크기를 바꾸는 손잡이가 없다
-- R-05 (표시): Given 위젯을 놓음 / When 키가 모두 저장되고 받아 둔 값이 있을 때, 설정에서 키 하나를 지웠을 때, 키는 저장되어 있는데 받아 둔 값이 없고 받기에 실패했을 때를 차례로 본다 / Then 차례로 판정, 키 안내, 받지 못함이 보인다
-- R-06 (화면 배치): Given 키가 모두 저장되고 받아 둔 값이 있음 / When 두 위젯을 본다 / Then 위에서 아래로 "지금 장은", 단계 이름(크게, 단계의 색), "M월 D일 종가"다
-- R-08 (화면 표시): Given 받지 못함 상태 / When 두 위젯을 본다 / Then 위에서 아래로 "학반꿀", "데이터를 받지 못했습니다"다
-- R-09: Given 받지 못함 상태 / When 작은 위젯을 본다 / Then "데이터를 받지 못했습니다"가 한 줄에 들어가지 않으면 "데이터를" 다음이나 "받지" 다음처럼 띄어쓰기에서 넘어가고, 낱말 가운데("못했습" / "니다" 등)에서 넘어가지 않는다
-- R-10: Given 판정, 키 안내, 받지 못함 / When 작은 위젯을 본다 / Then 판정은 세 줄, 키 안내와 받지 못함은 두 줄(문구가 넘어가면 그만큼 더)이 위아래로 붙어 카드 세로 가운데에 놓인다
-- R-11 (화면 배치): Given 판정, 키 안내, 받지 못함 / When 두 위젯을 본다 / Then 큰 위젯은 첫 줄이 위쪽, 단계 이름이나 안내 문구가 가운데, 마지막 줄(판정은 날짜, 키 안내와 받지 못함은 "눌러서 앱 열기")이 아래쪽이다. 작은 위젯에는 "눌러서 앱 열기"가 없다
-- R-12: Given 위젯을 놓음 / When 기기를 어두운 화면으로 바꾼다 / Then 위젯은 흰 카드와 같은 글 색 그대로다
-- R-13: Given 그날의 단계(하나), 키 안내, 받지 못함, 새로 고침을 눌러 받는 중의 모습 / When 각 모습에서 두 위젯을 시안 `https://claude.ai/artifact/LuRSF8bSPDqruAbnUSfye9`의 "위젯 · 작은 위젯 (2×1)", "위젯 · 큰 위젯 (2×2)"의 같은 모습과 나란히 놓고 본다 / Then 배치, 간격, 크기, 색이 같다. 위젯 크기는 홈 화면 앱에 따라 시안과 다를 수 있고, 여백·글자 크기·버튼 자리가 같으면 된다. 그날이 아닌 세 단계는 만들어 볼 수 없어 R-32로 색만 본다
-- R-14: Given 판정, 키 안내, 받지 못함 / When 각 모습에서 새로 고침 버튼 밖을 누른다 / Then 앱의 시장 분위기 화면이 열린다
-- R-15: Given 앱에서 설정 화면을 연 채 홈으로 나감 / When 위젯의 버튼 밖을 누른다 / Then 설정 화면이 아니라 시장 분위기 화면이 보인다. 뒤로 가기를 누르면 앱을 나간다(설정 화면으로 돌아가지 않는다)
-- R-16 (표시): Given 키가 저장되어 있고 받아 둔 값이 있음, 위젯이 없음 / When 위젯을 놓는다 / Then 놓자마자 판정이 보인다(빈 카드나 "데이터를 받지 못했습니다"가 먼저 보이지 않는다)
-- R-17: Given 위젯이 놓여 있고 마지막으로 받은 뒤 새 종가가 나옴 / When 앱을 열어 새로 받은 뒤 홈으로 나간다 / Then 위젯의 날짜가 앱의 기준 날짜와 같은 새 날짜다
-- R-18: Given 위젯이 판정을 보여 줌 / When 설정에서 키 하나를 지우고 홈으로 나갔다가, 다시 키를 저장하고 홈으로 나간다 / Then 지운 뒤에는 키 안내(버튼 흐림), 다시 저장한 뒤에는 판정이 보인다
-- R-19 (표시): Given 위젯이 키 안내를 보여 줌(키 하나를 지움) / When 키를 다시 저장하고 곧바로 홈으로 나가 위젯을 지켜본다 / Then 키 안내에서 판정으로 바뀌고, 그 사이 "데이터를 받지 못했습니다"가 스치지 않는다
-- R-20 (놓을 때 받음): Given 마지막으로 받은 뒤 6시간이 넘고 새 종가가 나옴, 앱이 꺼져 있음(최근 앱 목록에서 지움), 위젯이 없음 / When 위젯을 놓고 앱을 열지 않고 기다린다 / Then 잠시 뒤 위젯의 날짜가 새 종가 날짜로 바뀐다
-- R-21 (앱을 열지 않아도 받아짐): Given 위젯을 놓고 앱을 끔 / When 앱을 열지 않고 다음 날까지 둔다 / Then 다음 날 위젯의 날짜가 놓은 날보다 뒤의 새 종가 날짜로 바뀌어 있다
-- R-22: Given 마지막으로 받은 뒤 6시간이 넘고 새 종가가 나옴, 앱이 꺼져 있음, 위젯이 없음, 비행기 모드 / When 위젯을 놓고 기다린 뒤 비행기 모드를 끈다 / Then 비행기 모드 동안에는 날짜가 그대로이고, 끈 뒤 잠시 뒤 새 종가 날짜로 바뀐다
-- R-23: Given 위젯이 놓여 있음 / When 놓인 위젯을 모두 치웠다가 다시 놓고, 앱을 열지 않고 다음 날까지 둔다 / Then 다음 날 위젯의 날짜가 새 종가 날짜로 바뀌어 있다
-- R-24: Given 위젯이 놓여 있음 / When 기기를 껐다 켜고, 앱을 열지 않고 다음 날까지 둔다 / Then 켠 뒤 위젯이 판정을 보여 주고(빈 카드나 오류가 아님), 다음 날 날짜가 새 종가 날짜로 바뀌어 있다
-- R-25 (앱과 같음): Given 위젯이 판정을 보여 줌 / When 앱을 열어 종합 판정 카드를 본다 / Then 위젯의 단계 이름과 날짜가 카드의 "지금 장은" 아래 단계 이름, 기준 날짜와 같다
-- R-27 (실패해도 다시 돌리지 않음): R-42와 함께 본다
-- R-32: Given 위젯이 판정을 보여 줌 / When 위젯과 앱의 종합 판정 카드를 나란히 본다 / Then 단계 이름의 색이 같다
-- R-37 (그림, 흐리게 보임, 눌러도 반응 없음): Given 판정, 키 안내 / When 버튼을 보고, 키 안내에서 버튼을 누른다 / Then 버튼이 앱의 새로 고침과 같은 그림이고, 키 안내에서는 흐리게 보이며 눌러도 앱이 열리지 않고 아무 일도 없다
-- R-38: Given 위젯이 판정을 보여 줌, 마지막으로 받은 뒤 새 종가가 나옴, 앱이 꺼져 있음 / When 새로 고침 버튼을 누른다 / Then 진행 표시가 돈 뒤 날짜가 새 종가 날짜로 바뀐다. 앱은 열리지 않는다
-- R-39: Given 작은 위젯과 큰 위젯을 함께 놓음 / When 한 위젯의 새로 고침을 누른다 / Then 두 위젯 모두 버튼 자리에 진행 표시가 돌고, 그동안 버튼 자리를 다시 눌러도 아무 일이 없다. 나머지는 그대로다
-- R-41 (1분 안에는 받지 않음, 앱을 끈 채로도): Given 위젯이 판정을 보여 줌, 마지막으로 받기를 시작한 지 1분이 넘음 / When 새로 고침을 눌러 진행 표시가 풀리면 곧바로 앱을 강제 종료(설정 > 앱 > 학반꿀 > 강제 종료)하고, 처음 누른 때부터 1분이 지나기 전에 다시 누른다 / Then 둘째에는 진행 표시가 1초쯤만 보였다가 버튼으로 돌아온다(첫째보다 짧다)
-- R-42: Given 위젯이 판정을 보여 줌, 마지막으로 받기를 시작한 지 1분이 넘음, 비행기 모드 / When 새로 고침을 누른다 / Then 진행 표시가 돈 뒤 버튼으로 돌아오고, 판정과 날짜가 그대로이며 실패 안내가 없다. 잠시 기다려도 진행 표시가 다시 돌지 않는다(R-27)
-- R-43 (앱이 꺼진 뒤): Given 위젯이 판정을 보여 줌 / When 새로 고침을 눌러 진행 표시가 도는 동안 앱을 강제 종료하고, 앱을 다시 열었다가 홈으로 나간다 / Then 위젯의 버튼 자리가 진행 표시가 아니라 새로 고침 버튼이다
+- R-05 (표시 (두 제목과 카드의 순서)): Given 실제 키 둘이 저장되어 판정이 보임 / When 시장 분위기 화면을 위에서 아래로 밀어 본다 / Then 종합 판정 카드, "지난 5년과 비교하면"과 그 아래 한 줄, 주가 위치 카드, 금리 부담 카드, "장세의 근거", 주식 카드, 채권 신호 카드, 맨 아래 안내 순서다
+- R-19: Given 판정이 보이는 여러 상태 / When 화면을 연다 / Then 시안 "시장 분위기 · 판정이 나왔을 때", "장세와 종합 점수가 다른 날", "새로 받지 못했을 때", "키가 없을 때", "한 번도 받지 못했을 때", "중립인 날", "물장인 날", "받는 중", "매매 판단의 숫자와 단계가 다른 날", "금리 값의 날짜가 다르고 1년 전과 같은 날"과 나란히 놓고 볼 때 배치, 간격, 크기, 색이 같다. 그런 날이 아닌 화면은 미리보기로 본다
+- R-23 (화면이 멈칫하지 않음): Given 실제 키 둘이 저장됨 / When 앱을 열 때와 새로 고침으로 받기가 끝난 뒤 / Then 화면이 멈추거나 끊기지 않고, 받는 동안 진행 표시가 돌며 위아래로 밀 수 있다
+- R-41 (실제 요청): Given 이 변경 전의 앱으로 판정을 본 적이 있는 기기에 이 앱을 깔고 실제 키 둘이 저장됨 / When 앱을 연다 / Then 처음에는 받는 중 카드가 잠시 보인 뒤 매매 판단까지 있는 판정이 나온다(전에 받아 둔 장세 값으로 판정을 먼저 보이지 않는다). 새로 고침을 다시 눌러도 판정이 그대로 나오고 안내 띠가 보이지 않는다. 금리 부담 카드의 물가 줄에 달이 적혀 있다
+- R-63 (표시): Given 판정이 보임 / When 주가 위치 카드를 본다 / Then 왼쪽에 "주가 위치"와 그 아래 "전체 시장 SPY", 오른쪽에 "35 · 보통" 모양의 점수와 단계, 눈금, 근거 두 줄("200일 평균보다 … · 3년 평균보다 …", "고점보다 … · 3개월 전보다 …")이 있다
+- R-64 (표시): Given 판정이 보임 / When 금리 부담 카드를 본다 / Then 왼쪽에 "금리 부담"과 그 아래 "실질금리 2.79%" 모양의 값, 오른쪽에 점수와 단계, 눈금, 근거 세 줄("1년 전보다 …" 또는 "1년 전과 같음", "10년물 국채 … · 기준금리 …", "물가 … · 목표 2%보다 … · …월 값")이 있다
+- R-65 (표시): Given 판정이 보임 / When 두 카드의 눈금을 본다 / Then 세 칸의 폭이 31 : 38 : 31쯤이고, 칸 아래에 주가 위치는 "싼 편", "보통", "비싼 편", 금리 부담은 "낮음", "보통", "높음"이 있으며, 표시가 점수의 자리(예: 98이면 오른쪽 끝 가까이)에 있다
+- R-66 (단계의 색): Given 판정이 보임 / When 두 카드의 점수와 단계를 본다 / Then 싼 편·낮음은 청록, 보통은 회색, 비싼 편·높음은 주황이고 장세의 빨강·파랑과 다르다. 그날 보이지 않는 단계는 미리보기(판정이 나왔을 때, 중립인 날, 물장인 날)로 시안과 견준다
+- R-67 (표시): Given 점수로 정한 단계와 표시 단계가 다른 날(그런 날이 아니면 미리보기 "매매 판단의 숫자와 단계가 다른 날") / When 그 카드를 본다 / Then 눈금과 근거 줄 사이에 회색 상자로 "점수는 33이지만 아직 '싼 편'입니다. 36 이상이 되어야 보통으로 바뀝니다." 모양의 줄이 있고, 시안 "매매 판단의 숫자와 단계가 다른 날"과 모양이 같다
+- R-70 (표시 (줄이 두 줄로 넘어감)): Given 실질금리·10년물·기준금리의 날짜가 기준 날짜와 다른 날(그런 날이 아니면 미리보기 "금리 값의 날짜가 다르고 1년 전과 같은 날") / When 금리 부담 카드를 본다 / Then 날짜가 다른 값 바로 뒤에 " · 11월 21일 값" 모양이 붙고, 10년물·기준금리 줄이 잘리지 않고 다음 줄로 넘어가며, 시안 "금리 값의 날짜가 다르고 1년 전과 같은 날"과 모양이 같다

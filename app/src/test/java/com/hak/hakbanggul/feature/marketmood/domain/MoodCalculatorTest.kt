@@ -14,8 +14,8 @@ import java.time.DayOfWeek
 
 class MoodCalculatorTest {
 
-    private val calculator = MoodCalculator()
-    private val rules = DefaultMoodRules.rules
+    private val calculator = MoodCalculator(ValuationCalculator())
+    private val rules = MoodTestData.RULES
 
     private fun assess(builder: MoodTestData.Builder): MoodAssessment =
         requireNotNull(calculator.assess(rules, builder.build())) { "판정을 낼 수 있어야 한다" }
@@ -35,6 +35,7 @@ class MoodCalculatorTest {
 
     @Test
     fun `R-30 기본 규칙의 묶음, 항목, 시리즈, 점수 기준, 비중, 경계, 유지 일수`() {
+        val rules = DefaultMoodRules.rules
         val trend = ScoringRule.PriceTrend(200, 0.10, 0.20)
         fun stock(id: String, ticker: String) =
             IndicatorRule(id, IndicatorSeries(DataSource.TWELVE_DATA, ticker, SeriesKind.DAILY_CLOSE), trend)
@@ -339,5 +340,46 @@ class MoodCalculatorTest {
         val builder = dataA()
         STOCKS.forEach { id -> builder.keepOnly(id) { it.dayOfWeek == DayOfWeek.MONDAY } }
         assertNull(calculator.assess(rules, builder.build()))
+    }
+
+    // R-40 매매 판단이 없으면 판정도 없음
+
+    @Test
+    fun `R-40 데이터 A면 판정이 있고 장세는 전과 같으며 매매 판단이 실린다`() {
+        val result = assess(dataA())
+        assertEquals(1.0, result.compositeScore, 0.0)
+        assertEquals(MarketStage.BULL, result.displayedStage)
+        assertEquals(ValuationCalculatorTest.dataAValuation(), result.valuation)
+        assertEquals(50, result.valuation.pricePosition.score)
+        assertEquals(50, result.valuation.rateBurden.score)
+    }
+
+    @Test
+    fun `R-40 DFII10이 없으면 장세를 낼 수 있어도 null`() {
+        assertNull(calculator.assess(rules, dataA().removeSeries(MoodTestData.REAL_YIELD).build()))
+    }
+
+    @Test
+    fun `R-40 CPIAUCSL이 2025-11-01부터만 있으면 null`() {
+        val builder = dataA().keepOnly(MoodTestData.CONSUMER_PRICE) { !it.isBefore(date("2025-11-01")) }
+        assertNull(calculator.assess(rules, builder.build()))
+    }
+
+    // R-37 거래일에 매매 판단의 시리즈는 넣지 않음
+
+    @Test
+    fun `R-37 매매 판단의 시리즈에만 있는 날은 기준 날짜가 되지 않는다`() {
+        val builder = dataA()
+            .set(MoodTestData.TREASURY_10Y, "2026-11-24", 4.0)
+            .set(MoodTestData.POLICY_RATE, "2026-11-24", 3.5)
+            .set(MoodTestData.REAL_YIELD, "2026-11-24", 2.0)
+        assertEquals(date("2026-11-23"), assess(builder).asOfDate)
+    }
+
+    @Test
+    fun `R-37 실질금리가 기준 날짜에 없어도 기준 날짜는 그대로이고 실질금리의 날은 그 전 날`() {
+        val result = assess(dataA().remove(MoodTestData.REAL_YIELD, "2026-11-23"))
+        assertEquals(date("2026-11-23"), result.asOfDate)
+        assertEquals(date("2026-11-20"), result.valuation.rateBurden.realYieldDate)
     }
 }

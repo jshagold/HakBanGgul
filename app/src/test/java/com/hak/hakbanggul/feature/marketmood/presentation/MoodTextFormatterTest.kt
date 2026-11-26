@@ -64,4 +64,29 @@ class MoodTextFormatterTest {
         assertEquals("3.76%", formatter.percent(3.76))
         assertEquals("3.40%", formatter.percent(3.4))
     }
+
+    // R-69 매매 판단의 글
+
+    @Test
+    fun `R-69 ratioPercent`() {
+        assertEquals("3.7%", formatter.ratioPercent(0.037))
+        assertEquals("4.1%", formatter.ratioPercent(0.04149))
+        assertEquals("4.2%", formatter.ratioPercent(0.0415))
+        assertEquals("0.0%", formatter.ratioPercent(0.0))
+    }
+
+    @Test
+    fun `R-69 inflationGap`() {
+        assertEquals("+2.1%p", formatter.inflationGap(0.041, 0.02))
+        assertEquals("-0.2%p", formatter.inflationGap(0.018, 0.02))
+        assertEquals("0.0%p", formatter.inflationGap(0.0204, 0.02))
+        assertEquals("0.0%p", formatter.inflationGap(0.0195, 0.02))
+        assertEquals("+0.5%p", formatter.inflationGap(0.03, 0.025))
+    }
+
+    @Test
+    fun `R-69 targetPercent`() {
+        assertEquals("2", formatter.targetPercent(0.02))
+        assertEquals("2.5", formatter.targetPercent(0.025))
+    }
 }

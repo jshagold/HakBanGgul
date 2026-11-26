@@ -33,6 +33,24 @@ class MoodTextFormatter {
     fun weightPercent(weight: Double): Int =
         BigDecimal.valueOf(weight).movePointRight(2).setScale(0, RoundingMode.HALF_UP).toInt()
 
+    // 비율에 100을 곱해 부호 없이 소수 한 자리. 0.037은 3.7%
+    fun ratioPercent(ratio: Double): String = ratioToPercent(ratio).toPlainString() + "%"
+
+    // 물가 상승률을 소수 한 자리 퍼센트로 반올림한 값에서 목표(퍼센트)를 뺀 차이. 부호와 소수 한 자리. (0.041, 0.02)는 +2.1%p
+    fun inflationGap(rate: Double, target: Double): String {
+        val gap = ratioToPercent(rate).subtract(BigDecimal.valueOf(target).movePointRight(2)).setScale(1, RoundingMode.HALF_UP)
+        return signed(gap) + "%p"
+    }
+
+    // 목표에 100을 곱해 끝의 0 없이. 0.02는 2, 0.025는 2.5
+    fun targetPercent(target: Double): String =
+        BigDecimal.valueOf(target).movePointRight(2).stripTrailingZeros().let {
+            if (it.scale() < 0) it.setScale(0) else it
+        }.toPlainString()
+
+    private fun ratioToPercent(ratio: Double): BigDecimal =
+        BigDecimal.valueOf(ratio).movePointRight(2).setScale(1, RoundingMode.HALF_UP)
+
     private fun round(value: Double, decimals: Int): BigDecimal =
         BigDecimal.valueOf(value).setScale(decimals, RoundingMode.HALF_UP)
 

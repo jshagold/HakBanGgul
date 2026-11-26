@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -39,8 +40,8 @@ class MarketMoodExposedUseCaseTest {
     private val keys = FakeApiKeyProvider()
 
     private fun TestScope.newRefresher(): MarketDataRefresher {
-        val calculator = MoodCalculator()
-        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator)
+        val calculator = MoodCalculator(ValuationCalculator())
+        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
@@ -50,18 +51,20 @@ class MarketMoodExposedUseCaseTest {
     private fun holdFetch(answer: FetchResult? = null): CompletableDeferred<Unit> {
         val wait = CompletableDeferred<Unit>()
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             wait.await()
-            answer ?: FetchResult.Success(remote.build(series.map { it.seriesId }))
+            answer ?: FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         return wait
     }
 
     // R-58 ObserveMoodUseCase. 받기 관리자와 ViewModel 없이 가짜 저장소와 규칙, 계산기만으로 만든다.
 
-    private val observeMood = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator())
+    // 계산용 디스패처로 이 테스트의 스케줄러를 쓰는 시험용 디스패처를 넘긴다.
+    private fun TestScope.observeMood(): Flow<MoodAssessment?> =
+        ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))()
 
-    private suspend fun firstMoodWith(stored: MoodTestData.Builder?): MoodAssessment? {
+    private suspend fun TestScope.firstMoodWith(stored: MoodTestData.Builder?): MoodAssessment? {
         repository.setStored(stored, null)
         return observeMood().first()
     }
@@ -210,5 +213,40 @@ class MarketMoodExposedUseCaseTest {
 
         assertEquals(RefreshState(isRefreshing = false, lastFailure = null), states.last())
         result.await()
+    }
+
+    // R-23 계산용 디스패처에서
+
+    @Test
+    fun `R-23 계산은 넘긴 디스패처에서 돈다`() = runTest {
+        repository.setStored(dataA(), null)
+        val computeDispatcher = StandardTestDispatcher(testScheduler)
+        val useCase = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), computeDispatcher)
+        val received = mutableListOf<MoodAssessment?>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { useCase().toList(received) }
+
+        // 넘긴 디스패처는 아직 돌리지 않았다.
+        assertTrue(received.isEmpty())
+
+        runCurrent()
+
+        assertEquals(1, received.size)
+        assertNotNull(received.single())
+    }
+
+    // R-58, R-81 매매 판단
+
+    @Test
+    fun `R-58 R-81 데이터 A면 첫 값에 매매 판단이 있다`() = runTest {
+        val mood = firstMoodWith(dataA())!!
+        assertEquals(50, mood.valuation.pricePosition.score)
+        assertEquals(ValuationStage.MIDDLE, mood.valuation.pricePosition.displayedStage)
+        assertEquals(50, mood.valuation.rateBurden.score)
+        assertEquals(ValuationStage.MIDDLE, mood.valuation.rateBurden.displayedStage)
+    }
+
+    @Test
+    fun `R-58 R-81 DFF가 없으면 null`() = runTest {
+        assertNull(firstMoodWith(dataA().removeSeries(MoodTestData.POLICY_RATE)))
     }
 }

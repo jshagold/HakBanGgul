@@ -8,21 +8,24 @@ import javax.inject.Inject
 
 // 받아 둔 일별 값과 규칙으로 판정을 내는 순수 계산기.
 // 항목이 무엇인지 모르고 규칙의 목록만 돈다. 지금 시각을 쓰지 않아 같은 값이면 늘 같은 판정이 난다.
-class MoodCalculator @Inject constructor() {
+class MoodCalculator @Inject constructor(
+    private val valuationCalculator: ValuationCalculator,
+) {
 
     // values의 키는 시리즈 ID다. 목록의 순서에 기대지 않는다.
-    // 기준 날짜의 항목 점수를 모든 항목에 대해 낼 수 없으면 null이다.
+    // 기준 날짜의 항목 점수를 모든 항목에 대해 낼 수 없거나, 기준 날짜의 매매 판단을 낼 수 없으면 null이다.
+    // 매매 판단의 시리즈는 장세의 항목이 아니라 거래일에 들지 않는다.
     fun assess(rules: MoodRules, values: Map<String, List<DailyValue>>): MoodAssessment? {
         val indicators = rules.groups.flatMap { it.indicators }
         if (indicators.isEmpty() || rules.groups.any { it.indicators.isEmpty() }) return null
 
-        val series = HashMap<String, Series>()
+        val series = HashMap<String, DailySeries>()
         for (indicator in indicators) {
             val id = indicator.series.seriesId
             if (id in series) continue
             val list = values[id]
             if (list.isNullOrEmpty()) return null
-            series[id] = Series.of(list)
+            series[id] = DailySeries.of(list)
         }
 
         // 거래일은 값의 종류가 DAILY_CLOSE인 항목 모두의 값이 있는 날이다.
@@ -45,6 +48,8 @@ class MoodCalculator @Inject constructor() {
         val computedStage = computedStages.last()
         val streak = computedStages.asReversed().takeWhile { it == computedStage }.size
 
+        val valuation = valuationCalculator.assess(rules.valuation, values, asOfDate) ?: return null
+
         val groups = assessGroups(rules, series, asOfDate)
         return MoodAssessment(
             asOfDate = asOfDate,
@@ -56,6 +61,7 @@ class MoodCalculator @Inject constructor() {
             upperBoundary = rules.upperBoundary,
             lowerBoundary = rules.lowerBoundary,
             groups = groups,
+            valuation = valuation,
         )
     }
 
@@ -86,7 +92,7 @@ class MoodCalculator @Inject constructor() {
         return displayed
     }
 
-    private fun assessGroups(rules: MoodRules, series: Map<String, Series>, day: LocalDate): List<GroupAssessment> =
+    private fun assessGroups(rules: MoodRules, series: Map<String, DailySeries>, day: LocalDate): List<GroupAssessment> =
         rules.groups.map { group ->
             val indicators = group.indicators.map { assessIndicator(it, series.getValue(it.series.seriesId), day) }
             GroupAssessment(
@@ -111,7 +117,7 @@ class MoodCalculator @Inject constructor() {
     }
 
     // 계산 단계를 낼 수 있는지: 평균에 쓸 종가가 모자라지 않고 1년 전 날까지 받아 두었는지(PriceTrend), 그날이나 그 전에 값이 있는지
-    private fun canScore(indicator: IndicatorRule, series: Series, day: LocalDate): Boolean {
+    private fun canScore(indicator: IndicatorRule, series: DailySeries, day: LocalDate): Boolean {
         val index = series.floorIndex(day)
         if (index < 0) return false
         return when (val scoring = indicator.scoring) {
@@ -121,7 +127,7 @@ class MoodCalculator @Inject constructor() {
         }
     }
 
-    private fun assessIndicator(indicator: IndicatorRule, series: Series, day: LocalDate): IndicatorAssessment {
+    private fun assessIndicator(indicator: IndicatorRule, series: DailySeries, day: LocalDate): IndicatorAssessment {
         val index = series.floorIndex(day)
         val value = series.values[index]
         return when (val scoring = indicator.scoring) {
@@ -131,15 +137,8 @@ class MoodCalculator @Inject constructor() {
                 val average = sum / scoring.averageDays
                 val trendScore = if (value >= average) 1 else -1
 
-                // 최근 1년 최고 종가: 1년 전 같은 날부터 그날까지(두 날 포함)의 종가 가운데 가장 높은 값
-                val yearAgo = day.minusYears(1)
-                var high = value
-                var i = index
-                while (i >= 0 && !series.dates[i].isBefore(yearAgo)) {
-                    if (series.values[i] > high) high = series.values[i]
-                    i--
-                }
-                val drawdown = (value - high) / high
+                // 거래일이라 index는 그날의 위치다.
+                val drawdown = series.drawdownAt(index)
                 val decline = -drawdown
                 val drawdownScore = when {
                     decline <= scoring.shallowDrawdown -> 1
@@ -170,23 +169,6 @@ class MoodCalculator @Inject constructor() {
                     else -> -1.0
                 }
                 IndicatorAssessment(indicator.id, score, IndicatorEvidence.ValueEvidence(value, series.dates[index]))
-            }
-        }
-    }
-
-    // 날짜 오름차순으로 정리한 시리즈. 같은 날짜가 여럿이면 앞의 것 하나만 둔다.
-    private class Series(val dates: List<LocalDate>, val values: DoubleArray) {
-
-        // 그날이나 그 전의 날 가운데 값이 있는 가장 가까운 날의 위치. 없으면 -1
-        fun floorIndex(day: LocalDate): Int {
-            val found = dates.binarySearch(day)
-            return if (found >= 0) found else -(found + 1) - 1
-        }
-
-        companion object {
-            fun of(list: List<DailyValue>): Series {
-                val sorted = list.sortedBy { it.date }.distinctBy { it.date }
-                return Series(sorted.map { it.date }, DoubleArray(sorted.size) { sorted[it].value })
             }
         }
     }

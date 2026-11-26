@@ -19,11 +19,13 @@ import com.hak.hakbanggul.feature.marketmood.domain.ObserveRefreshStateUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshMarketDataUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RequestRefreshUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -41,7 +43,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
     val rulesRepository = FakeMoodRulesRepository()
     val clock = FakeClock(now)
     val keys = FakeApiKeyProvider()
-    private val calculator = MoodCalculator()
+    private val calculator = MoodCalculator(ValuationCalculator())
 
     // 받기 관리자가 쓰는 저장소. 시작한 때를 읽다 예외가 나게 할 때 바꾼다.
     var refresherRepository: MarketDataRepository = repository
@@ -64,7 +66,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
     val fetchCount get() = repository.fetchCalls.size
 
     fun start() {
-        val observeMood = ObserveMoodUseCase(rulesRepository, refresherRepository, calculator)
+        val observeMood = ObserveMoodUseCase(rulesRepository, refresherRepository, calculator, UnconfinedTestDispatcher(testScope.testScheduler))
         val refresh = RefreshMarketDataUseCase(refresherRepository, rulesRepository, calculator, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScope.testScheduler))
@@ -78,7 +80,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
     }
 
     fun observeWidgetState(): ObserveWidgetStateUseCase = ObserveWidgetStateUseCase(
-        ObserveMoodUseCase(widgetMoodRules, repository, calculator),
+        ObserveMoodUseCase(widgetMoodRules, repository, calculator, UnconfinedTestDispatcher(testScope.testScheduler)),
         observeRefreshState,
         widgetKeyProvider,
         coordinator,
@@ -94,15 +96,15 @@ class WidgetTestFixture(private val testScope: TestScope) {
     fun holdFetch(answer: FetchResult? = null): CompletableDeferred<Unit> {
         val wait = CompletableDeferred<Unit>()
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             wait.await()
-            answer ?: FetchResult.Success(remote.build(series.map { it.seriesId }))
+            answer ?: FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         return wait
     }
 
     fun answerAlways(answer: FetchResult) {
-        repository.fetchAnswer = { _, _, _ -> answer }
+        repository.fetchAnswer = { _, _ -> answer }
     }
 
     companion object {

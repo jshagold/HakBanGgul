@@ -1,64 +1,58 @@
-기능: 홈 화면 위젯
-변경: 신규 개발 (CS-003)
+기능: 시장 분위기
+변경: 버전업-002 (CS-004)
 
 ## DECISION
 
-### D-01 (전달 1) 라이브러리 버전
-단위 1. 지시한 버전(Glance `glance-appwidget` 1.2.0, WorkManager `work-runtime-ktx` 2.12.0)을 그대로 들였다. AGP 9.5.2, Kotlin 2.4.21, compileSdk 37.1에서 빌드와 테스트가 통과해 다른 버전을 고를 일이 없었다. (P-11)
+### D-01 (전달 1) Twelve Data의 묶은 요청들을 동시에 보낸다
+단위 2. MarketDataRepositoryImpl에서 시작 날짜가 같은 종목끼리 묶은 요청(기본 규칙에서 SPY 하나, QQQ·XLK·SMH 하나)을 FRED와 같이 동시에 보내고, 결과는 요청 순서대로 모아 앞 요청의 실패를 먼저 돌려준다. 출처마다 10초 제한이 받기 전체에 걸리므로, 차례로 보내면 9년치 SPY 요청이 제한 안의 시간을 더 쓴다. 요청 가운데 하나라도 실패하면 받은 값을 하나도 돌려주지 않는 것은 지시대로다.
 
-### D-02 (전달 1) 아이콘과 진행 표시의 그림 리소스
-단위 1. 새로 고침 아이콘은 그림 하나(`ic_widget_refresh`, 흰 선)로 두고, 놓는 곳에서 Glance의 `ColorFilter.tint`로 색(`textMuted`, `widgetRefreshDisabled`)을 입힌다. "색은 놓는 곳에서 정한다"는 지시에 맞추고 그림이 둘로 갈리지 않게 했다. 진행 표시는 한 장의 그림(`widget_progress_ring`: 바탕 고리와 사분원)을 `rotate` 그림(`widget_progress_spin`)으로 감싸 ProgressBar의 indeterminateDrawable로 돌린다. 한 바퀴 도는 시간은 지시에 없어 1초(`indeterminateDuration` 1000)로 정했다. 진행 표시 레이아웃은 그림 칸 크기가 달라 작은 위젯(16)과 큰 위젯(18)에 하나씩 두었다(`widget_progress_small`, `widget_progress_large`). (R-37, R-39, P-12)
+### D-02 (전달 1) 저장하는 시리즈 수가 바뀐 기존 테스트의 기대 값을 맞췄다
+단위 1·2. 데이터 A에 시리즈 넷이 더해지고 받는 시리즈가 열 개가 되어, 기존 테스트에서 "저장한 시리즈 6개"를 보던 곳을 10개로 바꿨다(MarketDataRefresherTest 세 곳, 위젯의 WidgetRefreshCoordinatorTest 한 곳). RefreshMarketDataUseCaseTest의 FRED 시리즈 목록(fredIds)에 DFII10·DGS10·DFF·CPIAUCSL을 더하고, 테스트 이름 "시리즈 여섯"을 "시리즈 열"로 바꿨다. 위젯 쪽은 테스트 데이터를 맞춘 것이고 위젯 코드는 고치지 않았다.
 
-### D-03 (전달 1) 위젯에서 앱을 여는 Intent의 플래그
-단위 1, 단위 5. `AppLaunchIntents.marketMood`는 패키지의 실행 Intent에 `NEW_TASK | CLEAR_TOP | SINGLE_TOP`을 단다. 앱의 작업이 이미 있을 때 `NEW_TASK`만 달면 Android가 작업을 앞으로 가져오기만 하고 새 Intent를 넘기지 않아, "시장 분위기 화면을 보이라"는 표시가 MainActivity에 닿지 않는다. `CLEAR_TOP`과 `SINGLE_TOP`을 함께 달면 있는 MainActivity가 `onNewIntent`로 받는다(액티비티가 하나라 걷히는 다른 액티비티는 없다). 매니페스트에는 MainActivity에 `launchMode="singleTop"`을 더했다. (R-14, R-15, P-14)
+### D-03 (전달 1) 매매 판단 점수는 소수 여섯 자리로 먼저 반올림한 뒤 정수로 반올림한다
+단위 3. ValuationCalculator. 위치의 평균 × 100이 계산 오차로 12.4999…가 되어 12.5를 올려야 할 때 내려가는 일을 막는다. 장세의 현재 상태를 소수 여섯 자리로 반올림하는 것과 같은 방식이다.
 
-### D-04 (전달 1) ObserveWidgetStateUseCase의 그대로 두기와 미루기
-단위 2. 네 입력(판정, 받는 중, 키, 눌러 받는 중)을 `combine`으로 합치고, `channelFlow` 안에서 "내준 content"를 들고 고른다. 받지 못함을 미루는 0.5초는 `channelFlow` 안에서 띄운 코루틴의 `delay`로 재고, 그 사이에 다른 content가 골라지면 그 코루틴을 취소한다. 미루는 동안 받지 못함이 다시 들어와도 0.5초를 새로 재지 않는다(처음 받지 못함으로 바뀐 때부터 잰다). 모으는 쪽과 미뤄 둔 코루틴이 앱 범위(Dispatchers.Default)에서 서로 다른 스레드에서 돌 수 있어 상태는 Mutex 안에서만 만진다. 판정의 Flow는 `catch`로 null을 내고 끝나며, `combine`은 끝난 Flow의 마지막 값(null)으로 다른 입력의 변화에 계속 반응한다. (R-16, R-17, R-19, R-29, P-02, P-04)
+### D-04 (전달 1) 위치 기간이 2보다 작거나 평균 일수가 1보다 작으면 매매 판단을 낼 수 없는 것으로 본다
+단위 3. ValuationCalculator. 위치의 식이 (위치 기간 - 1)로 나누므로 규칙이 잘못 들어와도 0으로 나누지 않게 한다. 기본 규칙과 시험용 규칙에는 걸리지 않는다.
 
-### D-05 (전달 1) WidgetRefreshCoordinator에서 청이 예외로 끝난 때
-단위 2. 취소가 아닌 예외로 청이 끝나면 결과가 없는 것으로 보고 1초를 기다리지 않고 바로 눌러 받는 중을 푼다. 지시의 "`SKIPPED`면 1초, 그 밖은 바로"에서 예외는 "그 밖"으로 보았다. 눌러 받는 중을 푸는 것은 `finally`에서 `NonCancellable`로 해, 1초를 기다리는 중에 취소되어도 풀린다. (R-41, R-43, P-09)
+### D-05 (전달 1) 소비자물가에 같은 달의 값이 여럿이면 날짜가 이른 것 하나만 쓴다
+단위 3. ValuationCalculator. FRED는 달마다 1일의 값 하나를 주므로 실제로는 일어나지 않지만, 같은 날짜가 여럿이면 앞의 것 하나를 두는 DailySeries와 같은 방향으로 정했다.
 
-### D-06 (전달 1) 단위 2·3 테스트의 가짜
-단위 2, 단위 3. 테스트의 기본 상황은 `WidgetTestFixture`(`app/src/test/.../homewidget/domain/`)가 만든다. 시장 분위기 테스트의 가짜(`FakeMarketDataRepository` 등)는 고치지 않고 그대로 가져다 쓴다.
-- R-43 "받아 달라는 청이 예외로 끝나게 함": 지시의 예(키의 Flow가 예외를 던지는 ApiKeyProvider)는 받기 관리자가 만들어질 때 앱 범위에서 키를 모으는 코루틴도 예외로 끝나게 해, 테스트가 그 예외로 실패한다. 그래서 받기 관리자의 저장소를 "시작한 때를 읽다 예외를 던지는 저장소"(`ThrowingStartedAtRepository`, 위임 가짜)로 바꿔 MANUAL의 조건을 따지다 예외가 나게 했다.
-- R-29 "판정의 Flow가 예외를 던짐": 위젯이 쓰는 ObserveMoodUseCase에만 예외를 던지는 규칙 저장소를 넣었다. 받기 관리자는 보통 규칙을 쓴다.
-- R-03 "ObserveWidgetStateUseCase는 한 번만 모아진다": 위젯이 쓰는 ApiKeyProvider를 `observeAvailability`가 불린 횟수를 세는 위임 가짜로 바꿔, 출처 둘에 2번(한 번 모음)인지 본다.
+### D-06 (전달 1) 테스트에서 ObserveMoodUseCase에는 그 테스트의 스케줄러를 쓰는 UnconfinedTestDispatcher를 넘긴다
+단위 3. 기존 테스트의 흐름(값이 바로 나옴)을 바꾸지 않으려는 것이다. MarketMoodExposedUseCaseTest의 R-58 테스트들은 ObserveMoodUseCase를 클래스 필드로 만들고 있어 runTest의 스케줄러와 다른 스케줄러를 쓰게 되므로, TestScope에서 만드는 함수로 바꿨다. R-23(계산용 디스패처에서) 테스트만 StandardTestDispatcher를 넘긴다.
 
-### D-07 (전달 1) WidgetState를 HomeWidgetUiState로 바꾸는 곳
-단위 3. 바꾸는 것은 `WidgetState.toUiState()` 확장 함수 하나로 두고, HomeWidgetStateHolder가 이것을 쓴다. 판정 데이터로 만들기 어려운 경우(WEAK, BEAR, 1월 5일, 12월 31일)는 테스트에서 이 함수를 따로 불러 확인했다. HomeWidgetStateHolder는 `stateIn(앱 범위, Eagerly, null)`로 한 번만 모은다. (R-03, R-06, R-26, P-05)
+### D-07 (전달 1) ValuationCalculator 테스트의 "작은 규칙"은 1년 전으로 보는 날 수를 1로 줄였다
+단위 3. 적은 수의 값으로 금리 부담(1년 전과의 차이)까지 낼 수 있게 하려는 것이다. 1년 전과의 차이를 보는 R-79 테스트만 365로 둔다. 점수열을 만드는 도우미(valuesForScores, closesForScores, weekdaysEndingAt)는 ViewModel 테스트도 쓰도록 MoodTestData에 두었다. 주가 위치의 점수열은 짧은 평균과 긴 평균을 둘 다 2로 두어 두 괴리가 같게 하고, 괴리에서 종가를 거꾸로 만들었다.
 
-### D-08 (전달 1) 안내 문구의 줄 바꿈 (R-09)
-단위 4. 안내 문구("키를 넣어 주세요", "데이터를 받지 못했습니다")를 그릴 때, 띄어쓰기가 아닌 두 글자 사이마다 보이지 않는 글자 WORD JOINER(U+2060)를 넣는다. 이 글자 앞뒤에서는 줄을 바꾸지 못하므로 줄은 띄어쓰기에서만 바뀐다. Glance의 Text에는 줄 바꿈 방식을 정하는 값이 없고, TextView의 `lineBreakWordStyle`은 Android 13부터라 최소 버전(8.0)을 채우지 못해 이 방법을 골랐다. 넣는 것은 위젯 쪽(`MoodWidgetLayout`의 `keepWordsTogether`)에서 그릴 때만 하고, UiState의 글과 strings.xml은 그대로다. 문구를 고르는 일이 아니라 그리는 방식이라 위젯 쪽에 두었다. (R-09)
+### D-08 (전달 1) 1년 전과의 차이가 0인지는 MoodTextFormatter.scoreTone(값, 2)로 가른다
+단위 4. MarketMoodViewModel. 지시의 "적는 값(소수 두 자리로 반올림한 값)으로 가른다"와 같은 반올림을 쓰는 기존 함수다. 날짜가 붙는 값(실질금리, 10년물, 기준금리)은 있는 `evidence_value_with_date`를 값 자리에 UiText로 끼운다.
 
-### D-09 (전달 1) 비활성 버튼과 진행 표시의 누름
-단위 4. 비활성과 진행 표시의 버튼 자리는 아무 일도 하지 않는 ActionCallback(`IgnoreWidgetClickAction`, RefreshWidgetAction과 같은 파일)으로 누름을 받는다. 누름을 받지 않으면 카드의 앱 열기로 넘어가기 때문이다. Glance의 람다 누름은 세션이 끝난 뒤에는 위젯을 다시 그리게 해, 아무 일도 하지 않는 데에는 ActionCallback이 맞다. (R-37, R-39)
+### D-09 (전달 1) ViewModel 테스트는 주가 위치의 대상을 시험용 시리즈로 바꾼 규칙으로 점수를 만든다
+단위 4. MarketMoodViewModelTest. 주가 위치의 대상을 `TEST_PRICE`(TWELVE_DATA, DAILY_CLOSE)로 바꾸고 위치 기간 101, 평균 일수 1인 규칙을 쓴다. SPY는 장세의 항목이기도 해서, SPY의 값을 바꾸면 장세(200일 평균 등)도 함께 바뀌기 때문이다. 금리 부담은 장세 항목이 아닌 DFII10을 직접 바꾼다. 괴리·낙폭·3개월 수익률의 글(R-68)은 짧은 평균 2, 긴 평균 3, 3개월 3인 규칙에서 다섯 날의 종가를 거꾸로 계산해 만들었다.
 
-### D-10 (전달 1) 뒤에서 받기 작업의 모양
-단위 4.
-- 주기 작업은 첫 차례도 6시간 뒤에 돌게 했다(`setInitialDelay` 6시간). WorkManager의 주기 작업은 넣자마자 한 번 도는데, PERIODIC은 조건 `WHEN_KEYS_AVAILABLE`이라 위젯을 놓을 때마다 6시간 조건과 상관없이 받게 된다. 놓은 때 받을지는 FIRST_PLACED(`WHEN_STALE`)가 정하게 했다. (R-20, R-21)
-- FIRST_PLACED 작업은 이름 하나로 넣고, 연결을 기다리며 남아 있는 것이 있으면 그대로 둔다(KEEP). 작은 위젯과 큰 위젯의 첫 개를 잇달아 놓아도 하나만 돈다. (R-20, R-22)
-- MANUAL 작업은 Android 12 이상에서 급한 작업(expedited, 한도를 넘으면 보통 작업)으로 넣어 절전 중이어도 곧 돌게 했다. 그보다 낮은 버전에서 급한 작업은 알림이 붙는 포그라운드 서비스로 돌아 매니페스트와 알림 채널이 더 필요해, 보통 작업으로 넣는다. 위젯을 누르면 앱 프로세스가 깨어 있으므로 조건 없는 작업은 WorkManager가 곧바로 돌린다. (R-38, P-07)
-- Worker는 MANUAL이면 진행 표시가 풀린 상태가 HomeWidgetStateHolder에 들어올 때까지 최대 5초 기다린 뒤 다시 그린다. (R-39, R-40)
+### D-10 (전달 1) 종합 판정 카드의 눈금을 칸 폭·색·이름을 받게 고쳐 매매 판단 카드와 함께 쓴다
+단위 5. MarketMoodScreen의 Gauge. 종합 판정 카드는 폭 0.25의 네 칸을 넘겨 모양이 그대로다. 회색 안내 상자(Notice)도 종합 판정 카드의 다른 날 안내와 함께 쓴다. 판정이 보이는 미리보기의 높이는 시안 화면의 높이로 늘리고, 두 카드의 값은 각 시안 화면의 예시 값을 옮겼다.
 
-### D-11 (전달 1) 위젯이 상태를 받는 방법
-단위 4. SmallMoodWidget, LargeMoodWidget은 `provideGlance`에서 HomeWidgetStateHolder의 null이 아닌 첫 값을 기다린 뒤, `provideContent` 안에서 같은 `state`를 `collectAsState`로 받아 그린다. 위젯 세션이 살아 있는 동안 상태가 바뀌면 바로 다시 그려지고, 세션이 끝난 뒤에는 HomeWidgetUpdater의 `updateAll`이 다시 그리게 한다. 두 Receiver는 한 파일(`MoodWidgetReceivers.kt`)에 두었다. `onDisabled`의 세는 일은 suspend라 `goAsync`로 알림을 붙잡아 둔 채 끝낸다. (R-03, R-16, P-05, P-08)
-
-### D-12 (전달 1) 위젯에서 열렸다는 알림을 AppNavHost에 넘기는 모양
-단위 5. MainActivity가 알릴 때마다 1씩 늘리는 숫자(`showMarketMoodSignal`)를 AppNavHost에 넘기고, AppNavHost는 이 값이 바뀌면(0보다 크면) `popBackStack(시장 분위기, inclusive = false)`로 위에 쌓인 설정 화면을 걷는다. 이미 시장 분위기 화면이면 걷을 것이 없어 아무 일도 없다. 화면을 돌려 다시 만들어질 때는 `savedInstanceState`가 있으면 알리지 않고, 숫자도 0에서 다시 시작해 같은 Intent로 두 번 걷지 않는다. (R-14, R-15, P-14)
-
-### D-13 (전달 1) 용어 주석의 자리
-- 홈 화면 위젯: `HomeWidget`과 똑같은 이름의 선언은 없다. 이 이름을 담아 처음 선언하는 `HomeWidgetUiState` 위에 달았다.
-- 키 안내 `KeyGuide`, 받지 못함 `NotReceived`: WidgetContent 안의 선언 위에 달았다.
-- 작은 위젯 `SmallMoodWidget`, 큰 위젯 `LargeMoodWidget`: 각 클래스 위에 달았다.
+### D-11 (전달 1) 문구 이름
+단위 4. strings.xml에 더한 문구: `valuation_title`, `valuation_description`, `mood_evidence_title`, `price_position_name`, `price_position_subtitle`, `rate_burden_name`, `rate_burden_subtitle`, `valuation_score`, `valuation_price_low`, `valuation_middle`, `valuation_price_high`, `valuation_rate_low`, `valuation_rate_high`, `valuation_notice_low`, `valuation_notice_high`, `price_evidence_average`, `price_evidence_drawdown`, `rate_evidence_year_change`, `rate_evidence_rising`, `rate_evidence_falling`, `rate_evidence_year_same`, `rate_evidence_rates`, `rate_evidence_inflation`. 공용 테마에 더한 이름: AppColors `valuationLow`·`valuationMiddle`·`valuationHigh`·`valuationGaugeLow`·`valuationGaugeMiddle`·`valuationGaugeHigh`, AppTypography `valuationScore`·`sectionDescription`, AppDimens `sectionTitlePaddingTop`·`sectionTitlePaddingHorizontal`·`valuationCardPadding`·`valuationEvidencePaddingTop`.
 
 ## BACKLOG
-없음
+
+### D-12 (전달 1) 1년 전과의 차이를 Domain에서 반올림해 두면 좋다
+실질금리의 차이를 Double 빼기로 내므로 2.79 - 2.785가 0.004999…가 되어, 실제 차이가 0.005인데 "1년 전과 같음"으로 적힐 수 있다(0.995와 1.0은 0.005000…이라 "+0.01%p"). 받은 값이 소수 두 자리이므로 RateBurdenAssessment.yearChange를 BigDecimal로 빼서 넘기면 화면의 반올림이 받은 값과 맞는다. 고칠 곳: feature/marketmood/domain의 ValuationCalculator.
 
 ## SPEC-ISSUE
-없음
+
+### D-13 (전달 1) R-72 여섯째 날의 3개월 수익률 기대 값이 지시의 식과 맞지 않는다
+단위 3 테스트 지시 R-72 둘째 경우(종가 10, 12, 11, 13, 12, 15, 3개월 2)의 Then은 "3개월 수익률 15 ÷ 11 - 1 = +0.3636"이다. 지시의 식(기준 날짜의 종가 ÷ 그보다 `threeMonthDays`개 앞의 주가 위치의 날의 종가 - 1, R-72·P-33)으로는 여섯째 날에서 2개 앞은 넷째 날(13)이라 15 ÷ 13 - 1 = +0.1538이다. 첫째 경우(다섯째 날, 12 ÷ 11 - 1)는 식과 맞는다. 지시의 식대로 구현하고, 이 경우의 테스트는 15 ÷ 13 - 1로 확인해 두었다. 둘째 경우의 기대 값을 바로잡거나, 식이 다른 뜻이면 알려 주어야 한다.
+
+### D-14 (전달 1) tasks.md의 전달 기록 표가 비어 있다
+tasks.md 머리말의 전달 기록 표에 줄이 없고 상태가 "작성 중"이다. decisions.md 항목 제목의 "전달 N"을 정할 수 없어 1로 적었다.
 
 ## BUG
+
 없음
 
 ## TECH-LIMIT
+
 없음

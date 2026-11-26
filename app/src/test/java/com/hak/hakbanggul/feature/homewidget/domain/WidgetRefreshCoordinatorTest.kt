@@ -134,7 +134,7 @@ class WidgetRefreshCoordinatorTest {
         assertTrue(job.isCompleted)
         assertEquals(2, f.fetchCount)
         assertEquals(1, f.repository.saveCalls.size)
-        assertEquals(6, f.repository.stored.value.values.size)
+        assertEquals(10, f.repository.stored.value.values.size)
     }
 
     // R-39 눌러 받는 중

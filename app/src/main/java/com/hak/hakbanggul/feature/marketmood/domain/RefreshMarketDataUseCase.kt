@@ -11,7 +11,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 import java.time.Clock
 import java.time.Instant
-import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import javax.inject.Inject
@@ -36,18 +35,16 @@ class RefreshMarketDataUseCase @Inject constructor(
             // 무시
         }
         val rules = rulesRepository.observe().first()
-        val seriesBySource = rules.groups
-            .flatMap { group -> group.indicators.map { it.series } }
-            .distinctBy { it.seriesId }
-            .groupBy { it.source }
+        // 시리즈마다 받는 때의 미국 동부 시간 날짜에서 그 시리즈의 받는 기간(해)을 뺀 날부터 받는다.
+        val today = now.atZone(MARKET_ZONE).toLocalDate()
+        val requestsBySource = rules.fetchYearsBySeries()
+            .map { (series, years) -> SeriesRequest(series, today.minusYears(years.toLong())) }
+            .groupBy { it.series.source }
             .toSortedMap(compareBy { it.ordinal })
-        val kindById = seriesBySource.values.flatten().associate { it.seriesId to it.kind }
-
-        // 받는 때의 미국 동부 시간 날짜에서 2년 전부터 받는다.
-        val startDate = now.atZone(MARKET_ZONE).toLocalDate().minusYears(2)
+        val kindById = requestsBySource.values.flatten().associate { it.series.seriesId to it.series.kind }
 
         val results: List<FetchResult> = coroutineScope {
-            seriesBySource.map { (source, series) -> async { fetchWithTimeout(source, series, startDate) } }.awaitAll()
+            requestsBySource.map { (source, requests) -> async { fetchWithTimeout(source, requests) } }.awaitAll()
         }
 
         val received = results
@@ -82,9 +79,9 @@ class RefreshMarketDataUseCase @Inject constructor(
     }
 
     // 출처마다의 받기 전체에 10초 제한을 건다. 넘기면 연결 안 됨과 같게 다룬다.
-    private suspend fun fetchWithTimeout(source: DataSource, series: List<IndicatorSeries>, startDate: LocalDate): FetchResult =
+    private suspend fun fetchWithTimeout(source: DataSource, requests: List<SeriesRequest>): FetchResult =
         try {
-            withTimeoutOrNull(FETCH_TIMEOUT_MILLIS) { marketDataRepository.fetch(source, series, startDate) }
+            withTimeoutOrNull(FETCH_TIMEOUT_MILLIS) { marketDataRepository.fetch(source, requests) }
                 ?: FetchResult.Failure(DataFetchError.NO_CONNECTION)
         } catch (e: CancellationException) {
             throw e
@@ -93,7 +90,7 @@ class RefreshMarketDataUseCase @Inject constructor(
             FetchResult.Failure(DataFetchError.OTHER)
         }
 
-    // 일 종가 시리즈에서, 받는 때가 그 날짜의 미국 동부 시간 오후 4시보다 앞인 날의 값은 장이 끝나지 않은 값이라 뺀다.
+    // 일 종가 시리즈에서만(날마다의 값, 달마다의 값은 거르지 않는다), 받는 때가 그 날짜의 미국 동부 시간 오후 4시보다 앞인 날의 값은 장이 끝나지 않은 값이라 뺀다.
     private fun dropUnclosedDays(values: List<DailyValue>, kind: SeriesKind?, now: Instant): List<DailyValue> {
         if (kind != SeriesKind.DAILY_CLOSE) return values
         return values.filter { !now.isBefore(it.date.atTime(MARKET_CLOSE).atZone(MARKET_ZONE).toInstant()) }

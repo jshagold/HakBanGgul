@@ -19,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -43,8 +44,8 @@ class MarketDataRefresherTest {
     private val keys = FakeApiKeyProvider()
 
     private fun TestScope.newRefresher(): MarketDataRefresher {
-        val calculator = MoodCalculator()
-        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator)
+        val calculator = MoodCalculator(ValuationCalculator())
+        val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
@@ -123,9 +124,9 @@ class MarketDataRefresherTest {
         repository.setStored(dataA(), now.minus(Duration.ofMinutes(1)))
         val wait = CompletableDeferred<Unit>()
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             wait.await()
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         val refresher = newRefresher()
         runCurrent()
@@ -142,7 +143,7 @@ class MarketDataRefresherTest {
 
     @Test
     fun `R-28 연결 안 됨으로 끝난 뒤 refresh로 다시 받는다`() = runTest {
-        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
+        repository.fetchAnswer = { _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
         val refresher = newRefresher()
         refresher.refresh()
         advanceUntilIdle()
@@ -161,9 +162,9 @@ class MarketDataRefresherTest {
     fun `R-22 받는 중에는 refresh와 onScreenShown이 받기를 겹쳐 시작하지 않는다`() = runTest {
         val wait = CompletableDeferred<Unit>()
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             wait.await()
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         val refresher = newRefresher()
         refresher.refresh()
@@ -183,9 +184,9 @@ class MarketDataRefresherTest {
     @Test
     fun `R-55 refresh를 부른 쪽이 취소되어도 받기는 끝까지 이어져 저장된다`() = runTest {
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             delay(1_000)
-            FetchResult.Success(remote.build(series.map { it.seriesId }))
+            FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         val refresher = newRefresher()
         val caller = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
@@ -204,14 +205,14 @@ class MarketDataRefresherTest {
 
     @Test
     fun `R-47 실패 뒤 성공하면 lastFailure가 null이 된다`() = runTest {
-        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
+        repository.fetchAnswer = { _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
         val refresher = newRefresher()
         refresher.refresh()
         advanceUntilIdle()
         assertEquals(RefreshFailure.NO_CONNECTION, refresher.state.value.lastFailure)
 
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ -> FetchResult.Success(remote.build(series.map { it.seriesId })) }
+        repository.fetchAnswer = { _, series -> FetchResult.Success(remote.build(series.map { it.series.seriesId })) }
         refresher.refresh()
         advanceUntilIdle()
 
@@ -222,7 +223,7 @@ class MarketDataRefresherTest {
 
     @Test
     fun `R-57 새로 만든 받기 관리자에는 지난 실패가 남지 않는다`() = runTest {
-        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(DataFetchError.RATE_LIMITED) }
+        repository.fetchAnswer = { _, _ -> FetchResult.Failure(DataFetchError.RATE_LIMITED) }
         val first = newRefresher()
         first.refresh()
         advanceUntilIdle()
@@ -276,9 +277,9 @@ class MarketDataRefresherTest {
     private fun holdFetch(answer: FetchResult? = null): CompletableDeferred<Unit> {
         val wait = CompletableDeferred<Unit>()
         val remote = repository.remote
-        repository.fetchAnswer = { _, series, _ ->
+        repository.fetchAnswer = { _, series ->
             wait.await()
-            answer ?: FetchResult.Success(remote.build(series.map { it.seriesId }))
+            answer ?: FetchResult.Success(remote.build(series.map { it.series.seriesId }))
         }
         return wait
     }
@@ -319,13 +320,13 @@ class MarketDataRefresherTest {
         assertEquals(RefreshRequestResult.REFRESHED, r)
         assertFalse(stateAtReturn.isRefreshing)
         assertNull(stateAtReturn.lastFailure)
-        assertEquals(6, storedAtReturn.values.size)
+        assertEquals(10, storedAtReturn.values.size)
         assertEquals(now, storedAtReturn.lastSuccessAt)
     }
 
     @Test
     fun `R-59 받기가 실패해도 예외 없이 REFRESHED이고 lastFailure가 반영되어 있다`() = runTest {
-        repository.fetchAnswer = { _, _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
+        repository.fetchAnswer = { _, _ -> FetchResult.Failure(DataFetchError.NO_CONNECTION) }
         val refresher = newRefresher()
         runCurrent()
 
@@ -410,7 +411,7 @@ class MarketDataRefresherTest {
     @Test
     fun `R-59 새로 만든 받기 관리자에 청하면 받는다`() = runTest {
         assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_KEYS_AVAILABLE))
-        assertEquals(6, repository.stored.value.values.size)
+        assertEquals(10, repository.stored.value.values.size)
     }
 
     // R-59 청한 쪽이 기다리기를 그만둬도 끝까지 받아 저장
@@ -429,7 +430,7 @@ class MarketDataRefresherTest {
         advanceUntilIdle()
 
         assertEquals(1, repository.saveCalls.size)
-        assertEquals(6, repository.stored.value.values.size)
+        assertEquals(10, repository.stored.value.values.size)
         assertFalse(refresher.state.value.isRefreshing)
     }
 
@@ -577,5 +578,14 @@ class MarketDataRefresherTest {
     fun `R-62 시작한 때가 지금보다 뒤면 WHEN_NOT_RECENTLY_STARTED로 받는다`() = runTest {
         repository.lastStartedAt = now.plus(Duration.ofMinutes(10))
         assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
+    }
+
+    // R-20 판정을 낼 수 있는 값이 없음 (앱을 바꾸기 전에 받아 둔 값)
+
+    @Test
+    fun `R-20 받아 둔 값에 매매 판단의 시리즈가 없으면 1시간 전에 받았어도 받는다`() = runTest {
+        val before = dataA()
+        MoodTestData.VALUATION_SERIES.forEach { before.removeSeries(it) }
+        assertTrue(shownWith(before, now.minus(Duration.ofHours(1))))
     }
 }

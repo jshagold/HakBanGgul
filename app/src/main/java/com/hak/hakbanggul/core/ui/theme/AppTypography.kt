@@ -46,6 +46,12 @@ data class AppTypography(
     // 눈금 아래의 단계 이름
     val gaugeLabel: TextStyle = style(11, FontWeight.Normal),
 
+    // 매매 판단
+    // 카드의 점수와 단계
+    val valuationScore: TextStyle = style(22, FontWeight.Bold),
+    // 제목 아래 한 줄
+    val sectionDescription: TextStyle = style(12, FontWeight.Normal),
+
     // 설정 화면
     // 입력 칸의 이름표("API 키")
     val inputLabel: TextStyle = style(13, FontWeight.Medium),

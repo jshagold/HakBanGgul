@@ -15,6 +15,10 @@ import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRefresher
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodAssessment
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.PricePositionAssessment
+import com.hak.hakbanggul.feature.marketmood.domain.RateBurdenAssessment
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationAssessment
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshFailure
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshState
@@ -113,7 +117,132 @@ class MarketMoodViewModel @Inject constructor(
             null
         },
         groups = mood.groups.map { groupState(it, mood.asOfDate) },
+        pricePosition = pricePositionCard(mood.valuation),
+        rateBurden = rateBurdenCard(mood.valuation, mood.asOfDate),
     )
+
+    // 매매 판단의 두 카드
+
+    private enum class ValuationCard { PRICE_POSITION, RATE_BURDEN }
+
+    private fun pricePositionCard(valuation: ValuationAssessment): ValuationCardUiState {
+        val price: PricePositionAssessment = valuation.pricePosition
+        return valuationCard(
+            card = ValuationCard.PRICE_POSITION,
+            valuation = valuation,
+            subtitle = UiText(R.string.price_position_subtitle),
+            score = price.score,
+            scoredStage = price.scoredStage,
+            displayedStage = price.displayedStage,
+            evidence = listOf(
+                UiText(
+                    R.string.price_evidence_average,
+                    listOf(formatter.signedPercent(price.shortDeviation), formatter.signedPercent(price.longDeviation)),
+                ),
+                UiText(
+                    R.string.price_evidence_drawdown,
+                    listOf(formatter.signedPercent(price.drawdown), formatter.signedPercent(price.threeMonthReturn)),
+                ),
+            ),
+        )
+    }
+
+    private fun rateBurdenCard(valuation: ValuationAssessment, asOfDate: LocalDate): ValuationCardUiState {
+        val rate: RateBurdenAssessment = valuation.rateBurden
+        // 0인지는 적는 값(소수 두 자리로 반올림한 값)으로 가른다.
+        val yearChangeLine = when (formatter.scoreTone(rate.yearChange, YEAR_CHANGE_DECIMALS)) {
+            ScoreTone.POSITIVE -> UiText(
+                R.string.rate_evidence_year_change,
+                listOf(formatter.signedPercentPoint(rate.yearChange), UiText(R.string.rate_evidence_rising)),
+            )
+            ScoreTone.NEGATIVE -> UiText(
+                R.string.rate_evidence_year_change,
+                listOf(formatter.signedPercentPoint(rate.yearChange), UiText(R.string.rate_evidence_falling)),
+            )
+            ScoreTone.ZERO -> UiText(R.string.rate_evidence_year_same)
+        }
+        return valuationCard(
+            card = ValuationCard.RATE_BURDEN,
+            valuation = valuation,
+            subtitle = UiText(
+                R.string.rate_burden_subtitle,
+                listOf(datedValue(formatter.percent(rate.realYield), rate.realYieldDate, asOfDate)),
+            ),
+            score = rate.score,
+            scoredStage = rate.scoredStage,
+            displayedStage = rate.displayedStage,
+            evidence = listOf(
+                yearChangeLine,
+                UiText(
+                    R.string.rate_evidence_rates,
+                    listOf(
+                        datedValue(formatter.percent(rate.treasury10y.value), rate.treasury10y.date, asOfDate),
+                        datedValue(formatter.percent(rate.policyRate.value), rate.policyRate.date, asOfDate),
+                    ),
+                ),
+                UiText(
+                    R.string.rate_evidence_inflation,
+                    listOf(
+                        formatter.ratioPercent(rate.inflationRate),
+                        formatter.targetPercent(valuation.inflationTarget),
+                        formatter.inflationGap(rate.inflationRate, valuation.inflationTarget),
+                        rate.inflationMonth.monthValue,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    private fun valuationCard(
+        card: ValuationCard,
+        valuation: ValuationAssessment,
+        subtitle: UiText,
+        score: Int,
+        scoredStage: ValuationStage,
+        displayedStage: ValuationStage,
+        evidence: List<UiText>,
+    ): ValuationCardUiState {
+        val low = valuation.lowBoundary
+        val high = valuation.highBoundary
+        val lowWidth = (low + 1) / 100f
+        val highWidth = (100 - high + 1) / 100f
+        val notice = when {
+            scoredStage == displayedStage -> null
+            displayedStage == ValuationStage.LOW ->
+                UiText(R.string.valuation_notice_low, listOf(score, valuationStageName(card, displayedStage), low + valuation.buffer + 1))
+            displayedStage == ValuationStage.HIGH ->
+                UiText(R.string.valuation_notice_high, listOf(score, valuationStageName(card, displayedStage), high - valuation.buffer - 1))
+            else -> null
+        }
+        return ValuationCardUiState(
+            subtitle = subtitle,
+            scoreText = UiText(R.string.valuation_score, listOf(score, valuationStageName(card, displayedStage))),
+            stage = displayedStage,
+            gauge = ValuationGaugeUiState(
+                segments = listOf(lowWidth, 1f - lowWidth - highWidth, highWidth),
+                labels = ValuationStage.entries.map { valuationStageName(card, it) },
+                position = (score / 100f).coerceIn(0f, 1f),
+            ),
+            notice = notice,
+            evidence = evidence,
+        )
+    }
+
+    private fun valuationStageName(card: ValuationCard, stage: ValuationStage): UiText = UiText(
+        when (stage) {
+            ValuationStage.MIDDLE -> R.string.valuation_middle
+            ValuationStage.LOW -> if (card == ValuationCard.PRICE_POSITION) R.string.valuation_price_low else R.string.valuation_rate_low
+            ValuationStage.HIGH -> if (card == ValuationCard.PRICE_POSITION) R.string.valuation_price_high else R.string.valuation_rate_high
+        },
+    )
+
+    // 값의 날짜가 기준 날짜와 다를 때만 값 바로 뒤에 그 날짜를 붙인다.
+    private fun datedValue(valueText: String, valueDate: LocalDate, asOfDate: LocalDate): Any =
+        if (valueDate == asOfDate) {
+            valueText
+        } else {
+            UiText(R.string.evidence_value_with_date, listOf(valueText, valueDate.monthValue, valueDate.dayOfMonth))
+        }
 
     private fun groupState(group: GroupAssessment, asOfDate: LocalDate): GroupUiState = GroupUiState(
         name = UiText(IndicatorLabels.groupNameRes(group.id)),
@@ -180,6 +309,7 @@ class MarketMoodViewModel @Inject constructor(
     private companion object {
         const val ITEM_DECIMALS = 1
         const val GROUP_DECIMALS = 2
+        const val YEAR_CHANGE_DECIMALS = 2
 
         val INITIAL_STATE = MarketMoodUiState(
             refreshButton = RefreshButtonState.DISABLED,

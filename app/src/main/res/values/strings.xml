@@ -112,4 +112,27 @@
     <string name="widget_open_app">눌러서 앱 열기</string>
     <string name="widget_refreshing">받는 중</string>
     <string name="widget_preview_as_of">11월 23일 종가</string>
+    <string name="valuation_title">지난 5년과 비교하면</string>
+    <string name="valuation_description">0은 지난 5년 중 가장 낮은 쪽, 100은 가장 높은 쪽</string>
+    <string name="mood_evidence_title">장세의 근거</string>
+    <string name="price_position_name">주가 위치</string>
+    <string name="price_position_subtitle">전체 시장 SPY</string>
+    <string name="rate_burden_name">금리 부담</string>
+    <string name="rate_burden_subtitle">실질금리 %1$s</string>
+    <string name="valuation_score">%1$d · %2$s</string>
+    <string name="valuation_price_low">싼 편</string>
+    <string name="valuation_middle">보통</string>
+    <string name="valuation_price_high">비싼 편</string>
+    <string name="valuation_rate_low">낮음</string>
+    <string name="valuation_rate_high">높음</string>
+    <string name="valuation_notice_low">점수는 %1$d이지만 아직 \'%2$s\'입니다. %3$d 이상이 되어야 보통으로 바뀝니다.</string>
+    <string name="valuation_notice_high">점수는 %1$d이지만 아직 \'%2$s\'입니다. %3$d 이하가 되어야 보통으로 바뀝니다.</string>
+    <string name="price_evidence_average">200일 평균보다 %1$s · 3년 평균보다 %2$s</string>
+    <string name="price_evidence_drawdown">고점보다 %1$s · 3개월 전보다 %2$s</string>
+    <string name="rate_evidence_year_change">1년 전보다 %1$s · %2$s</string>
+    <string name="rate_evidence_rising">오르는 중</string>
+    <string name="rate_evidence_falling">내리는 중</string>
+    <string name="rate_evidence_year_same">1년 전과 같음</string>
+    <string name="rate_evidence_rates">10년물 국채 %1$s · 기준금리 %2$s</string>
+    <string name="rate_evidence_inflation">물가 %1$s · 목표 %2$s%%보다 %3$s · %4$d월 값</string>
 </resources>

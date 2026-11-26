@@ -65,6 +65,16 @@ data class AppColors(
     val checkingContent: Color = Color(0xFF1D4AA8),
     val checkingTrack: Color = Color(0xFFB9CBEF),
 
+    // 매매 판단. 값이 위의 색과 같아도 쓰는 곳이 달라 따로 둔다. 홈 화면 위젯도 쓴다.
+    // 단계의 글(점수와 단계 이름): 싼 편·낮음, 보통, 비싼 편·높음
+    val valuationLow: Color = Color(0xFF0E7C6B),
+    val valuationMiddle: Color = Color(0xFF4A5360),
+    val valuationHigh: Color = Color(0xFFB45309),
+    // 눈금의 세 칸: 싼 편·낮음, 보통, 비싼 편·높음
+    val valuationGaugeLow: Color = Color(0xFF5FB8A8),
+    val valuationGaugeMiddle: Color = Color(0xFFB7BEC8),
+    val valuationGaugeHigh: Color = Color(0xFFE9A23B),
+
     // 홈 화면 위젯. 값이 gaugeNeutral과 같아도 쓰는 곳이 달라 따로 둔다.
     // 비활성 새로 고침 아이콘
     val widgetRefreshDisabled: Color = Color(0xFFB7BEC8),

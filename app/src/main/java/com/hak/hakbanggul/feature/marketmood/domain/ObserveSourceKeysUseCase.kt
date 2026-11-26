@@ -20,8 +20,9 @@ class ObserveSourceKeysUseCase @Inject constructor(
     operator fun invoke(): Flow<Map<DataSource, ApiKeyAvailability>> =
         rulesRepository.observe()
             .flatMapLatest { rules ->
-                val sources = rules.groups
-                    .flatMap { group -> group.indicators.map { it.series.source } }
+                // 장세의 항목과 매매 판단의 시리즈가 쓰는 출처
+                val sources = rules.fetchYearsBySeries().keys
+                    .map { it.source }
                     .distinct()
                     .sortedBy { it.ordinal }
                 if (sources.isEmpty()) {

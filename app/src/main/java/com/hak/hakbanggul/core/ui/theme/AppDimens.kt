@@ -90,6 +90,15 @@ data class AppDimens(
     val footerPaddingTop: Dp = 4.dp,
     val footerLinkPaddingVertical: Dp = 6.dp,
 
+    // 매매 판단
+    // 두 제목 덩어리("지난 5년과 비교하면", "장세의 근거")의 위 여백과 좌우 여백
+    val sectionTitlePaddingTop: Dp = 8.dp,
+    val sectionTitlePaddingHorizontal: Dp = 4.dp,
+    // 매매 판단 카드의 안쪽 여백(네 쪽)
+    val valuationCardPadding: Dp = 16.dp,
+    // 근거 줄 덩어리의 위 여백(그 위에 구분선)
+    val valuationEvidencePaddingTop: Dp = 10.dp,
+
     // 설정 화면의 위쪽 줄: 좌우 여백, 뒤로 가기 버튼과 화면 이름 사이, 뒤로 가기 아이콘
     val settingsTopBarPaddingHorizontal: Dp = 8.dp,
     val settingsTopBarGap: Dp = 4.dp,

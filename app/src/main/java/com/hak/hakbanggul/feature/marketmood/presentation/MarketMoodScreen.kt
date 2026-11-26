@@ -77,6 +77,7 @@ import com.hak.hakbanggul.core.ui.UiText
 import com.hak.hakbanggul.core.ui.asString
 import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 
 // FRED API 약관이 앱에 두라고 요구하는 약관 링크
 private const val FRED_TERMS_URL = "https://fred.stlouisfed.org/docs/api/terms_of_use.html"
@@ -294,8 +295,97 @@ private fun Banner(banner: BannerUiState, onRetryClick: () -> Unit) {
 @Composable
 private fun AssessmentBody(mood: MoodUiState) {
     AssessmentCard(mood)
+    SectionTitle(stringResource(R.string.valuation_title), stringResource(R.string.valuation_description))
+    ValuationCard(stringResource(R.string.price_position_name), mood.pricePosition)
+    ValuationCard(stringResource(R.string.rate_burden_name), mood.rateBurden)
+    SectionTitle(stringResource(R.string.mood_evidence_title), null)
     mood.groups.forEach { GroupCard(it) }
     Footer()
+}
+
+// 카드가 아닌 제목 덩어리. 바탕 없이 제목과 그 아래 한 줄(있을 때만)
+@Composable
+private fun SectionTitle(title: String, description: String?) {
+    val colors = HakBanGgulTheme.colors
+    val dimens = HakBanGgulTheme.dimens
+    val typography = HakBanGgulTheme.typography
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                start = dimens.sectionTitlePaddingHorizontal,
+                end = dimens.sectionTitlePaddingHorizontal,
+                top = dimens.sectionTitlePaddingTop,
+            ),
+        verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
+    ) {
+        Text(title, style = typography.bodyBold, color = colors.text)
+        if (description != null) Text(description, style = typography.sectionDescription, color = colors.textMuted)
+    }
+}
+
+// 매매 판단 카드: 머리(이름과 그 아래 글, 점수와 단계), 눈금, 안내 줄(있을 때만), 근거 줄
+@Composable
+private fun ValuationCard(name: String, card: ValuationCardUiState) {
+    val colors = HakBanGgulTheme.colors
+    val dimens = HakBanGgulTheme.dimens
+    val typography = HakBanGgulTheme.typography
+    Card(padding = dimens.valuationCardPadding, gap = dimens.assessmentGap) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
+                Text(name, style = typography.groupName, color = colors.text)
+                Text(card.subtitle.asString(), style = typography.caption, color = colors.textMuted)
+            }
+            Text(
+                card.scoreText.asString(),
+                style = typography.valuationScore,
+                color = valuationStageColor(card.stage),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
+
+        Gauge(
+            position = card.gauge.position,
+            segments = card.gauge.segments.zip(
+                listOf(colors.valuationGaugeLow, colors.valuationGaugeMiddle, colors.valuationGaugeHigh),
+            ),
+            labels = card.gauge.labels.map { it.asString() },
+        )
+
+        card.notice?.let { Notice(it.asString()) }
+
+        val borderColor = colors.border
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawBehind { drawRect(borderColor, size = Size(size.width, dimens.divider.toPx())) }
+                .padding(top = dimens.valuationEvidencePaddingTop),
+            verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
+        ) {
+            card.evidence.forEach { Text(it.asString(), style = typography.caption, color = colors.textMuted) }
+        }
+    }
+}
+
+// 회색 상자의 안내 줄
+@Composable
+private fun Notice(text: String) {
+    val colors = HakBanGgulTheme.colors
+    val dimens = HakBanGgulTheme.dimens
+    Text(
+        text = text,
+        style = HakBanGgulTheme.typography.captionNotice,
+        color = colors.textMuted,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.background, HakBanGgulTheme.shapes.notice)
+            .padding(horizontal = dimens.noticePaddingHorizontal, vertical = dimens.noticePaddingVertical),
+    )
 }
 
 @Composable
@@ -346,43 +436,42 @@ private fun AssessmentCard(mood: MoodUiState) {
             color = colors.text,
         )
 
-        Gauge(mood.gaugePosition)
+        Gauge(
+            position = mood.gaugePosition,
+            segments = listOf(colors.gaugeBear, colors.gaugeWeak, colors.gaugeNeutral, colors.gaugeBull).map { STAGE_SEGMENT to it },
+            labels = listOf(R.string.stage_bear, R.string.stage_weak, R.string.stage_neutral, R.string.stage_bull).map { stringResource(it) },
+        )
 
-        mood.pendingNotice?.let { notice ->
-            Text(
-                text = notice.asString(),
-                style = typography.captionNotice,
-                color = colors.textMuted,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.background, HakBanGgulTheme.shapes.notice)
-                    .padding(horizontal = dimens.noticePaddingHorizontal, vertical = dimens.noticePaddingVertical),
-            )
-        }
+        mood.pendingNotice?.let { Notice(it.asString()) }
     }
 }
 
-// 눈금: 물장, 약세, 중립, 불장 순서의 폭이 같은 네 칸과 종합 점수의 자리 표시. 칸마다 아래에 단계 이름을 적는다.
+// 종합 판정 카드의 눈금에서 칸 하나의 폭(네 칸이 같다)
+private const val STAGE_SEGMENT = 0.25f
+
+// 눈금: 칸(폭과 색)과 점수의 자리 표시. 칸마다 아래 가운데에 이름을 적는다.
+// 종합 판정 카드는 물장, 약세, 중립, 불장의 폭이 같은 네 칸, 매매 판단 카드는 상태가 정한 폭의 세 칸이다.
 @Composable
-private fun Gauge(position: Float) {
+private fun Gauge(position: Float, segments: List<Pair<Float, Color>>, labels: List<String>) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
     val shapes = HakBanGgulTheme.shapes
-    val segmentColors = listOf(colors.gaugeBear, colors.gaugeWeak, colors.gaugeNeutral, colors.gaugeBull)
     Column(verticalArrangement = Arrangement.spacedBy(dimens.gaugeLabelGap)) {
         Canvas(modifier = Modifier.fillMaxWidth().height(dimens.gaugeHeight)) {
             val barTop = dimens.gaugeBarTop.toPx()
             val barHeight = dimens.gaugeBarHeight.toPx()
             val barRadius = shapes.gaugeBarRadius.toPx()
-            val segmentWidth = size.width / segmentColors.size
 
-            // 양 끝이 둥근 막대 안에 네 칸을 칠한다.
+            // 양 끝이 둥근 막대 안에 칸을 칠한다.
             val bar = Path().apply {
                 addRoundRect(RoundRect(0f, barTop, size.width, barTop + barHeight, CornerRadius(barRadius)))
             }
             clipPath(bar) {
-                segmentColors.forEachIndexed { index, color ->
-                    drawRect(color, topLeft = Offset(segmentWidth * index, barTop), size = Size(segmentWidth, barHeight))
+                var left = 0f
+                segments.forEach { (width, color) ->
+                    val segmentWidth = size.width * width
+                    drawRect(color, topLeft = Offset(left, barTop), size = Size(segmentWidth, barHeight))
+                    left += segmentWidth
                 }
             }
 
@@ -405,13 +494,13 @@ private fun Gauge(position: Float) {
             )
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            listOf(R.string.stage_bear, R.string.stage_weak, R.string.stage_neutral, R.string.stage_bull).forEach {
+            segments.zip(labels).forEach { (segment, label) ->
                 Text(
-                    text = stringResource(it),
+                    text = label,
                     style = HakBanGgulTheme.typography.gaugeLabel,
                     color = colors.textMuted,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(segment.first),
                 )
             }
         }
@@ -654,6 +743,16 @@ private fun stageColor(stage: MarketStage): Color {
 }
 
 @Composable
+private fun valuationStageColor(stage: ValuationStage): Color {
+    val colors = HakBanGgulTheme.colors
+    return when (stage) {
+        ValuationStage.LOW -> colors.valuationLow
+        ValuationStage.MIDDLE -> colors.valuationMiddle
+        ValuationStage.HIGH -> colors.valuationHigh
+    }
+}
+
+@Composable
 private fun toneColor(tone: ScoreTone): Color {
     val colors = HakBanGgulTheme.colors
     return when (tone) {
@@ -690,6 +789,8 @@ private fun previewMood(
     stockTone: ScoreTone = ScoreTone.POSITIVE,
     month: Int = 11,
     day: Int = 23,
+    pricePosition: ValuationCardUiState = previewPriceCard(),
+    rateBurden: ValuationCardUiState = previewRateCard(),
 ) = MoodUiState(
     stage = stage,
     stageName = stageText(stage),
@@ -735,7 +836,75 @@ private fun previewMood(
             ),
         ),
     ),
+    pricePosition = pricePosition,
+    rateBurden = rateBurden,
 )
+
+private val priceStageNames = listOf(R.string.valuation_price_low, R.string.valuation_middle, R.string.valuation_price_high)
+private val rateStageNames = listOf(R.string.valuation_rate_low, R.string.valuation_middle, R.string.valuation_rate_high)
+
+private fun previewCard(
+    names: List<Int>,
+    subtitle: UiText,
+    score: Int,
+    stage: ValuationStage,
+    notice: UiText?,
+    evidence: List<UiText>,
+) = ValuationCardUiState(
+    subtitle = subtitle,
+    scoreText = UiText(R.string.valuation_score, listOf(score, UiText(names[stage.ordinal]))),
+    stage = stage,
+    gauge = ValuationGaugeUiState(listOf(0.31f, 0.38f, 0.31f), names.map { UiText(it) }, score / 100f),
+    notice = notice,
+    evidence = evidence,
+)
+
+private fun previewPriceCard(
+    score: Int = 74,
+    stage: ValuationStage = ValuationStage.HIGH,
+    short: String = "+4.1%",
+    long: String = "+21.4%",
+    drawdown: String = "-3.2%",
+    threeMonth: String = "+5.8%",
+    notice: UiText? = null,
+) = previewCard(
+    names = priceStageNames,
+    subtitle = UiText(R.string.price_position_subtitle),
+    score = score,
+    stage = stage,
+    notice = notice,
+    evidence = listOf(
+        UiText(R.string.price_evidence_average, listOf(short, long)),
+        UiText(R.string.price_evidence_drawdown, listOf(drawdown, threeMonth)),
+    ),
+)
+
+private fun previewRateCard(
+    realYield: Any = "2.79%",
+    score: Int = 98,
+    stage: ValuationStage = ValuationStage.HIGH,
+    yearLine: UiText = UiText(R.string.rate_evidence_year_change, listOf("+0.97%p", UiText(R.string.rate_evidence_rising))),
+    treasury: Any = "4.92%",
+    policy: Any = "3.88%",
+    inflation: String = "4.1%",
+    gap: String = "+2.1%p",
+    notice: UiText? = null,
+) = previewCard(
+    names = rateStageNames,
+    subtitle = UiText(R.string.rate_burden_subtitle, listOf(realYield)),
+    score = score,
+    stage = stage,
+    notice = notice,
+    evidence = listOf(
+        yearLine,
+        UiText(R.string.rate_evidence_rates, listOf(treasury, policy)),
+        UiText(R.string.rate_evidence_inflation, listOf(inflation, "2", gap, 10)),
+    ),
+)
+
+private fun falling(change: String) = UiText(R.string.rate_evidence_year_change, listOf(change, UiText(R.string.rate_evidence_falling)))
+
+private fun withDate(value: String, month: Int, day: Int) = UiText(R.string.evidence_value_with_date, listOf(value, month, day))
 
 @Composable
 private fun Preview(state: MarketMoodUiState) {
@@ -747,21 +916,38 @@ private fun Preview(state: MarketMoodUiState) {
 private fun assessmentState(mood: MoodUiState, banner: BannerUiState? = null) =
     MarketMoodUiState(RefreshButtonState.ENABLED, banner, MoodBody.Assessment(mood))
 
-@Preview(name = "판정이 나왔을 때 (불장)", widthDp = 390, heightDp = 1200)
+@Preview(name = "판정이 나왔을 때 (불장)", widthDp = 390, heightDp = 1670)
 @Composable
 private fun AssessmentBullPreview() = Preview(
     assessmentState(previewMood(MarketStage.BULL, composite = "+0.65", compositeTone = ScoreTone.POSITIVE, gauge = 0.825f)),
 )
 
-@Preview(name = "중립인 날", widthDp = 390, heightDp = 1200)
+@Preview(name = "중립인 날", widthDp = 390, heightDp = 1670)
 @Composable
 private fun AssessmentNeutralPreview() = Preview(
     assessmentState(
-        previewMood(MarketStage.NEUTRAL, composite = "+0.33", compositeTone = ScoreTone.POSITIVE, gauge = 0.6625f, stockScore = "+0.25"),
+        previewMood(
+            MarketStage.NEUTRAL,
+            composite = "+0.33",
+            compositeTone = ScoreTone.POSITIVE,
+            gauge = 0.6625f,
+            stockScore = "+0.25",
+            pricePosition = previewPriceCard(58, ValuationStage.MIDDLE, "+2.3%", "+17.2%", "-4.0%", "+1.9%"),
+            rateBurden = previewRateCard(
+                realYield = "1.64%",
+                score = 52,
+                stage = ValuationStage.MIDDLE,
+                yearLine = falling("-0.42%p"),
+                treasury = "3.95%",
+                policy = "4.33%",
+                inflation = "2.6%",
+                gap = "+0.6%p",
+            ),
+        ),
     ),
 )
 
-@Preview(name = "물장인 날", widthDp = 390, heightDp = 1200)
+@Preview(name = "물장인 날", widthDp = 390, heightDp = 1670)
 @Composable
 private fun AssessmentBearPreview() = Preview(
     assessmentState(
@@ -772,11 +958,22 @@ private fun AssessmentBearPreview() = Preview(
             gauge = 0.175f,
             stockScore = "-0.75",
             stockTone = ScoreTone.NEGATIVE,
+            pricePosition = previewPriceCard(6, ValuationStage.LOW, "-8.4%", "-3.5%", "-24.1%", "-15.7%"),
+            rateBurden = previewRateCard(
+                realYield = "0.85%",
+                score = 22,
+                stage = ValuationStage.LOW,
+                yearLine = falling("-0.71%p"),
+                treasury = "3.10%",
+                policy = "2.50%",
+                inflation = "1.8%",
+                gap = "-0.2%p",
+            ),
         ),
     ),
 )
 
-@Preview(name = "장세와 종합 점수가 다른 날", widthDp = 390, heightDp = 1260)
+@Preview(name = "장세와 종합 점수가 다른 날", widthDp = 390, heightDp = 1730)
 @Composable
 private fun AssessmentPendingPreview() = Preview(
     assessmentState(
@@ -792,7 +989,7 @@ private fun AssessmentPendingPreview() = Preview(
     ),
 )
 
-@Preview(name = "새로 받지 못했을 때 (약세)", widthDp = 390, heightDp = 1300)
+@Preview(name = "새로 받지 못했을 때 (약세)", widthDp = 390, heightDp = 1760)
 @Composable
 private fun AssessmentStalePreview() = Preview(
     assessmentState(
@@ -804,8 +1001,62 @@ private fun AssessmentStalePreview() = Preview(
             stockScore = "-0.50",
             stockTone = ScoreTone.NEGATIVE,
             day = 18,
+            pricePosition = previewPriceCard(41, ValuationStage.MIDDLE, "-1.2%", "+14.0%", "-8.9%", "-3.4%"),
         ),
         banner = BannerUiState(UiText(R.string.banner_stale_title), UiText(R.string.banner_no_connection_message)),
+    ),
+)
+
+@Preview(name = "매매 판단의 숫자와 단계가 다른 날", widthDp = 390, heightDp = 1790)
+@Composable
+private fun ValuationBufferPreview() = Preview(
+    assessmentState(
+        previewMood(
+            MarketStage.NEUTRAL,
+            composite = "+0.33",
+            compositeTone = ScoreTone.POSITIVE,
+            gauge = 0.6625f,
+            stockScore = "+0.25",
+            pricePosition = previewPriceCard(
+                33,
+                ValuationStage.LOW,
+                "+0.6%",
+                "+9.8%",
+                "-6.1%",
+                "-0.8%",
+                notice = UiText(R.string.valuation_notice_low, listOf(33, UiText(R.string.valuation_price_low), 36)),
+            ),
+            rateBurden = previewRateCard(
+                realYield = "2.05%",
+                score = 67,
+                stage = ValuationStage.HIGH,
+                yearLine = falling("-0.18%p"),
+                treasury = "4.30%",
+                policy = "4.33%",
+                inflation = "2.9%",
+                gap = "+0.9%p",
+                notice = UiText(R.string.valuation_notice_high, listOf(67, UiText(R.string.valuation_rate_high), 64)),
+            ),
+        ),
+    ),
+)
+
+@Preview(name = "금리 값의 날짜가 다르고 1년 전과 같은 날", widthDp = 390, heightDp = 1730)
+@Composable
+private fun ValuationRateDatePreview() = Preview(
+    assessmentState(
+        previewMood(
+            MarketStage.BULL,
+            composite = "+0.65",
+            compositeTone = ScoreTone.POSITIVE,
+            gauge = 0.825f,
+            rateBurden = previewRateCard(
+                realYield = withDate("2.79%", 11, 20),
+                yearLine = UiText(R.string.rate_evidence_year_same),
+                treasury = withDate("4.92%", 11, 20),
+                policy = withDate("3.88%", 11, 20),
+            ),
+        ),
     ),
 )
 
