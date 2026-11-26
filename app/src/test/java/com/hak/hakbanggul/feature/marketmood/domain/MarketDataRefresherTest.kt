@@ -50,7 +50,7 @@ class MarketDataRefresherTest {
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, clock, appScope)
+        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, clock, appScope)
     }
 
     private fun setKeys(twelveData: ApiKeyAvailability, fred: ApiKeyAvailability) {

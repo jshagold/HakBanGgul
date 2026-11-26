@@ -83,6 +83,7 @@ class MarketMoodViewModelTest {
             observeMood,
             observeKeys,
             repository,
+            rulesRepository,
             clock,
             appScope,
         )

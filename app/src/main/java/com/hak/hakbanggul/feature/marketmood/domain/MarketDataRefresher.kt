@@ -26,6 +26,7 @@ class MarketDataRefresher @Inject constructor(
     private val observeMood: ObserveMoodUseCase,
     private val observeSourceKeys: ObserveSourceKeysUseCase,
     private val marketDataRepository: MarketDataRepository,
+    private val rulesRepository: MoodRulesRepository,
     private val clock: Clock,
     @param:ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -84,14 +85,19 @@ class MarketDataRefresher @Inject constructor(
             running?.let { return it to false }
             CompletableDeferred<Unit>().also {
                 running = it
-                _state.value = _state.value.copy(isRefreshing = true)
+                _state.value = _state.value.copy(isRefreshing = true, broadMarketReceived = false)
             }
         }
         // ATOMIC: 시작 전에 취소되어도 finally까지 돌아 받는 중이 풀린다.
         scope.launch(start = CoroutineStart.ATOMIC) {
             var outcome: RefreshOutcome = RefreshOutcome.Failure(RefreshFailure.OTHER)
             try {
-                outcome = refreshMarketData()
+                // 이 받기가 아직 받는 중일 때만 전체 시장의 값을 받음으로 둔다. 묶음 사이를 기다리는 동안에도 받는 중이다.
+                outcome = refreshMarketData {
+                    synchronized(lock) {
+                        if (running === run) _state.value = _state.value.copy(broadMarketReceived = true)
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -101,7 +107,8 @@ class MarketDataRefresher @Inject constructor(
                 val failure = (outcome as? RefreshOutcome.Failure)?.reason
                 synchronized(lock) {
                     running = null
-                    _state.value = RefreshState(isRefreshing = false, lastFailure = failure)
+                    // 끝난 때는 RefreshMarketDataUseCase가 돌아오기 전에 적었다. 이 순서를 바꾸지 않는다.
+                    _state.value = RefreshState(isRefreshing = false, lastFailure = failure, broadMarketReceived = false)
                 }
                 run.complete(Unit)
             }
@@ -116,12 +123,19 @@ class MarketDataRefresher @Inject constructor(
         return when (condition) {
             RefreshCondition.WHEN_STALE -> {
                 val mood = observeMood().first()
-                val lastSuccessAt = marketDataRepository.observeStored().first().lastSuccessAt
-                mood == null || isOver(lastSuccessAt, now, STALE_AFTER)
+                val stored = marketDataRepository.observeStored().first()
+                val rules = rulesRepository.observe().first()
+                // 값이 한 날이라도 있으면 있다고 본다.
+                val missingTarget = rules.targets().any { stored.values[it.closeSeries.seriesId].isNullOrEmpty() }
+                mood == null || missingTarget || isOver(stored.lastSuccessAt, now, STALE_AFTER)
             }
             RefreshCondition.WHEN_KEYS_AVAILABLE -> true
-            RefreshCondition.WHEN_NOT_RECENTLY_STARTED ->
-                isOver(marketDataRepository.getStamp(RefreshStamp.STARTED), now, RESTART_AFTER)
+            RefreshCondition.WHEN_NOT_RECENTLY_STARTED -> {
+                // 시작한 때와 끝난 때 가운데 늦은 때. 받는 중에 앱이 꺼지면 끝난 때가 앞선 받기의 것일 수 있다.
+                val started = marketDataRepository.getStamp(RefreshStamp.STARTED)
+                val finished = marketDataRepository.getStamp(RefreshStamp.FINISHED)
+                isOver(listOfNotNull(started, finished).maxOrNull(), now, RESTART_AFTER)
+            }
         }
     }
 
@@ -136,7 +150,7 @@ class MarketDataRefresher @Inject constructor(
         // 마지막 성공에서 이만큼을 넘으면 새로 받는다.
         val STALE_AFTER: Duration = Duration.ofHours(6)
 
-        // WHEN_NOT_RECENTLY_STARTED: 마지막으로 받기를 시작한 때에서 이만큼을 넘으면 받는다.
+        // WHEN_NOT_RECENTLY_STARTED: 시작한 때와 끝난 때 가운데 늦은 때에서 이만큼을 넘으면 받는다.
         val RESTART_AFTER: Duration = Duration.ofMinutes(1)
     }
 }
