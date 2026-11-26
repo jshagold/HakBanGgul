@@ -30,6 +30,7 @@ class MoodUiMapper @Inject constructor() {
     fun mainScreen(overview: MarketOverview, isRefreshing: Boolean): MoodUiState {
         val mood = overview.mood
         return MoodUiState(
+            broadMarketId = overview.rules.broadMarket.id,
             regime = regimeCard(overview, overview.broadMarket, regimeOf(mood), showLink = true),
             valuationTitle = valuationTitle(overview),
             valuationDescription = valuationDescription(overview),

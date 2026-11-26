@@ -52,6 +52,12 @@ data class AppTypography(
     // 제목 아래 한 줄
     val sectionDescription: TextStyle = style(12, FontWeight.Normal),
 
+    // 상세 화면과 섹터 목록
+    // "근거와 다른 기간" 링크 줄
+    val link: TextStyle = style(14, FontWeight.Medium),
+    // 다른 기간 카드의 점수와 단계(장세는 단계 이름)
+    val otherPeriodScore: TextStyle = style(18, FontWeight.Bold),
+
     // 설정 화면
     // 입력 칸의 이름표("API 키")
     val inputLabel: TextStyle = style(13, FontWeight.Medium),

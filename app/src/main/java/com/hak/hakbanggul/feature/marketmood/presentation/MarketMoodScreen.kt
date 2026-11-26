@@ -1,14 +1,12 @@
 package com.hak.hakbanggul.feature.marketmood.presentation
 
 import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -24,11 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -42,27 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -78,12 +58,23 @@ import com.hak.hakbanggul.core.ui.asString
 import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
-
-// FRED API 약관이 앱에 두라고 요구하는 약관 링크
-private const val FRED_TERMS_URL = "https://fred.stlouisfed.org/docs/api/terms_of_use.html"
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.noticeHigh
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.noticeLow
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.pending
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.priceCard
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.rateCard
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.regimeCard
+import com.hak.hakbanggul.feature.marketmood.presentation.MoodPreviewData.sectorRows
 
 @Composable
-fun MarketMoodScreen(onOpenSettings: () -> Unit, viewModel: MarketMoodViewModel = hiltViewModel()) {
+fun MarketMoodScreen(
+    onOpenSettings: () -> Unit,
+    onOpenRegime: (targetId: String) -> Unit,
+    onOpenPricePosition: (targetId: String) -> Unit,
+    onOpenRateBurden: () -> Unit,
+    onOpenSector: (targetId: String) -> Unit,
+    viewModel: MarketMoodViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val activity = LocalActivity.current
 
@@ -103,6 +94,10 @@ fun MarketMoodScreen(onOpenSettings: () -> Unit, viewModel: MarketMoodViewModel 
         onRefreshClick = viewModel::onRefreshClick,
         onRetryClick = viewModel::onRetryClick,
         onOpenSettings = onOpenSettings,
+        onOpenRegime = onOpenRegime,
+        onOpenPricePosition = onOpenPricePosition,
+        onOpenRateBurden = onOpenRateBurden,
+        onOpenSector = onOpenSector,
     )
 }
 
@@ -112,6 +107,10 @@ private fun MarketMoodContent(
     onRefreshClick: () -> Unit,
     onRetryClick: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenRegime: (String) -> Unit = {},
+    onOpenPricePosition: (String) -> Unit = {},
+    onOpenRateBurden: () -> Unit = {},
+    onOpenSector: (String) -> Unit = {},
 ) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
@@ -137,7 +136,7 @@ private fun MarketMoodContent(
             when (val body = uiState.body) {
                 MoodBody.Undecided -> Unit
                 is MoodBody.KeyGuide -> KeyGuideCard(body.rows, onOpenSettings)
-                is MoodBody.Assessment -> AssessmentBody(body.mood)
+                is MoodBody.Assessment -> AssessmentBody(body.mood, onOpenRegime, onOpenPricePosition, onOpenRateBurden, onOpenSector)
                 MoodBody.Loading -> LoadingCard()
                 is MoodBody.Failed -> FailedCard(body.message, onRetryClick)
             }
@@ -169,7 +168,7 @@ private fun TopBar(refreshButton: RefreshButtonState, onRefreshClick: () -> Unit
             RefreshButton(refreshButton, onRefreshClick)
             MenuButton(onOpenSettings)
         }
-        Divider()
+        MoodDivider()
     }
 }
 
@@ -224,35 +223,6 @@ private fun MenuButton(onOpenSettings: () -> Unit) {
     }
 }
 
-// 누르는 영역 44, 둥근 물결이 퍼지는 아이콘 버튼
-@Composable
-private fun IconButtonBox(onClick: () -> Unit, enabled: Boolean, content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(HakBanGgulTheme.dimens.iconButton)
-            .clip(CircleShape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
-    }
-}
-
-// 돌아가는 진행 표시. 바탕 고리는 테두리 색, 도는 부분은 강조 색이다.
-// size는 선 굵기까지 넣은 고리의 바깥 지름이다(CircularProgressIndicator는 크기 안에 선을 그린다).
-@Composable
-private fun Spinner(size: Dp, strokeWidth: Dp) {
-    val colors = HakBanGgulTheme.colors
-    CircularProgressIndicator(
-        modifier = Modifier.size(size),
-        color = colors.accent,
-        trackColor = colors.border,
-        strokeWidth = strokeWidth,
-        strokeCap = StrokeCap.Round,
-        gapSize = 0.dp,
-    )
-}
-
 // 안내 띠
 
 @Composable
@@ -290,309 +260,23 @@ private fun Banner(banner: BannerUiState, onRetryClick: () -> Unit) {
     }
 }
 
-// 판정
+// 판정: 전체 장세 카드, 매매 판단 제목과 두 카드, 섹터별 제목과 섹터 목록, 맨 아래 안내
 
 @Composable
-private fun AssessmentBody(mood: MoodUiState) {
-    AssessmentCard(mood.regime)
+private fun AssessmentBody(
+    mood: MoodUiState,
+    onOpenRegime: (String) -> Unit,
+    onOpenPricePosition: (String) -> Unit,
+    onOpenRateBurden: () -> Unit,
+    onOpenSector: (String) -> Unit,
+) {
+    RegimeCard(mood.regime) { onOpenRegime(mood.broadMarketId) }
     SectionTitle(mood.valuationTitle.asString(), mood.valuationDescription.asString())
-    ValuationCard(mood.pricePosition)
-    ValuationCard(mood.rateBurden)
-    Footer()
-}
-
-// 카드가 아닌 제목 덩어리. 바탕 없이 제목과 그 아래 한 줄(있을 때만)
-@Composable
-private fun SectionTitle(title: String, description: String?) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = dimens.sectionTitlePaddingHorizontal,
-                end = dimens.sectionTitlePaddingHorizontal,
-                top = dimens.sectionTitlePaddingTop,
-            ),
-        verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
-    ) {
-        Text(title, style = typography.bodyBold, color = colors.text)
-        if (description != null) Text(description, style = typography.sectionDescription, color = colors.textMuted)
-    }
-}
-
-// 매매 판단 카드: 머리(이름과 그 아래 글, 점수와 단계), 눈금, 안내 줄(있을 때만), 근거 줄
-@Composable
-private fun ValuationCard(card: ValuationCardUiState) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    Card(padding = dimens.valuationCardPadding, gap = dimens.assessmentGap) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
-                Text(card.name.asString(), style = typography.groupName, color = colors.text)
-                Text(card.subtitle.asString(), style = typography.caption, color = colors.textMuted)
-            }
-            Text(
-                card.scoreText.asString(),
-                style = typography.valuationScore,
-                color = valuationStageColor(card.stage),
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-
-        Gauge(
-            position = card.gauge.position,
-            segments = card.gauge.segments.zip(
-                listOf(colors.valuationGaugeLow, colors.valuationGaugeMiddle, colors.valuationGaugeHigh),
-            ),
-            labels = card.gauge.labels.map { it.asString() },
-        )
-
-        card.notice?.let { Notice(it.asString()) }
-
-        if (card.evidence.isNotEmpty()) {
-            val borderColor = colors.border
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .drawBehind { drawRect(borderColor, size = Size(size.width, dimens.divider.toPx())) }
-                    .padding(top = dimens.valuationEvidencePaddingTop),
-                verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
-            ) {
-                card.evidence.forEach { Text(it.asString(), style = typography.caption, color = colors.textMuted) }
-            }
-        }
-    }
-}
-
-// 회색 상자의 안내 줄
-@Composable
-private fun Notice(text: String) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    Text(
-        text = text,
-        style = HakBanGgulTheme.typography.captionNotice,
-        color = colors.textMuted,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.background, HakBanGgulTheme.shapes.notice)
-            .padding(horizontal = dimens.noticePaddingHorizontal, vertical = dimens.noticePaddingVertical),
-    )
-}
-
-@Composable
-private fun AssessmentCard(mood: RegimeCardUiState) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    Card(padding = dimens.cardPadding, gap = dimens.assessmentGap) {
-        // 장세
-        Column(verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    mood.title.asString(),
-                    style = typography.small,
-                    color = colors.textMuted,
-                    modifier = Modifier.weight(1f).alignByBaseline(),
-                )
-                Text(
-                    mood.asOfText.asString(),
-                    style = typography.caption,
-                    color = colors.textMuted,
-                    modifier = Modifier.alignByBaseline(),
-                )
-            }
-            Text(mood.stageName.asString(), style = typography.stageName, color = stageColor(mood.stage))
-        }
-
-        Divider()
-
-        // 종합 점수: 점수는 점수 색과 굵은 글자, 단계 이름은 단계의 색이 아닌 굵은 글자
-        val bold = SpanStyle(fontWeight = typography.bodyBold.fontWeight)
-        val scoreColor = toneColor(mood.compositeTone)
-        val label = stringResource(R.string.mood_composite_label)
-        val separator = stringResource(R.string.mood_composite_separator)
-        val computedName = mood.computedStageName.asString()
-        Text(
-            text = buildAnnotatedString {
-                append(label)
-                append(" ")
-                withStyle(bold.copy(color = scoreColor)) { append(mood.compositeScoreText) }
-                append(separator)
-                withStyle(bold) { append(computedName) }
-            },
-            style = typography.body,
-            color = colors.text,
-        )
-
-        Gauge(
-            position = mood.gaugePosition,
-            segments = listOf(colors.gaugeBear, colors.gaugeWeak, colors.gaugeNeutral, colors.gaugeBull).map { STAGE_SEGMENT to it },
-            labels = listOf(R.string.stage_bear, R.string.stage_weak, R.string.stage_neutral, R.string.stage_bull).map { stringResource(it) },
-        )
-
-        mood.pendingNotice?.let { Notice(it.asString()) }
-    }
-}
-
-// 종합 판정 카드의 눈금에서 칸 하나의 폭(네 칸이 같다)
-private const val STAGE_SEGMENT = 0.25f
-
-// 눈금: 칸(폭과 색)과 점수의 자리 표시. 칸마다 아래 가운데에 이름을 적는다.
-// 종합 판정 카드는 물장, 약세, 중립, 불장의 폭이 같은 네 칸, 매매 판단 카드는 상태가 정한 폭의 세 칸이다.
-@Composable
-private fun Gauge(position: Float, segments: List<Pair<Float, Color>>, labels: List<String>) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val shapes = HakBanGgulTheme.shapes
-    Column(verticalArrangement = Arrangement.spacedBy(dimens.gaugeLabelGap)) {
-        Canvas(modifier = Modifier.fillMaxWidth().height(dimens.gaugeHeight)) {
-            val barTop = dimens.gaugeBarTop.toPx()
-            val barHeight = dimens.gaugeBarHeight.toPx()
-            val barRadius = shapes.gaugeBarRadius.toPx()
-
-            // 양 끝이 둥근 막대 안에 칸을 칠한다.
-            val bar = Path().apply {
-                addRoundRect(RoundRect(0f, barTop, size.width, barTop + barHeight, CornerRadius(barRadius)))
-            }
-            clipPath(bar) {
-                var left = 0f
-                segments.forEach { (width, color) ->
-                    val segmentWidth = size.width * width
-                    drawRect(color, topLeft = Offset(left, barTop), size = Size(segmentWidth, barHeight))
-                    left += segmentWidth
-                }
-            }
-
-            // 자리 표시와 그 둘레의 흰 테
-            val markerWidth = dimens.gaugeMarkerWidth.toPx()
-            val outline = dimens.gaugeMarkerOutline.toPx()
-            val markerRadius = shapes.gaugeMarkerRadius.toPx()
-            val x = size.width * position - markerWidth / 2
-            drawRoundRect(
-                color = colors.card,
-                topLeft = Offset(x - outline, -outline),
-                size = Size(markerWidth + outline * 2, size.height + outline * 2),
-                cornerRadius = CornerRadius(markerRadius + outline),
-            )
-            drawRoundRect(
-                color = colors.text,
-                topLeft = Offset(x, 0f),
-                size = Size(markerWidth, size.height),
-                cornerRadius = CornerRadius(markerRadius),
-            )
-        }
-        Row(modifier = Modifier.fillMaxWidth()) {
-            segments.zip(labels).forEach { (segment, label) ->
-                Text(
-                    text = label,
-                    style = HakBanGgulTheme.typography.gaugeLabel,
-                    color = colors.textMuted,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(segment.first),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GroupCard(group: GroupUiState) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .cardBackground()
-            .padding(
-                start = dimens.groupCardPadding,
-                end = dimens.groupCardPadding,
-                top = dimens.groupCardPadding,
-                bottom = dimens.groupCardPaddingBottom,
-            ),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = dimens.groupHeaderPaddingBottom),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
-                Text(group.name.asString(), style = typography.groupName, color = colors.text)
-                Text(group.weightText.asString(), style = typography.caption, color = colors.textMuted)
-            }
-            Text(group.scoreText, style = typography.title, color = toneColor(group.scoreTone))
-        }
-        group.indicators.forEach { IndicatorRow(it) }
-    }
-}
-
-// 항목 줄. 눌러도 아무 일도 일어나지 않는다.
-@Composable
-private fun IndicatorRow(indicator: IndicatorUiState) {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    val name = indicator.name.asString()
-    val suffix = indicator.suffix?.asString()
-    LineRow(
-        start = {
-            Text(
-                text = buildAnnotatedString {
-                    append(name)
-                    if (suffix != null) {
-                        append(" ")
-                        withStyle(typography.caption.toSpanStyle().copy(color = colors.textMuted)) { append(suffix) }
-                    }
-                },
-                style = typography.bodyMedium,
-                color = colors.text,
-            )
-            Text(indicator.evidence.asString(), style = typography.caption, color = colors.textMuted)
-        },
-        end = { Text(indicator.scoreText, style = typography.itemScore, color = toneColor(indicator.scoreTone)) },
-        dividerBelow = false,
-        gap = dimens.nameGap,
-    )
-}
-
-@Composable
-private fun Footer() {
-    val colors = HakBanGgulTheme.colors
-    val dimens = HakBanGgulTheme.dimens
-    val typography = HakBanGgulTheme.typography
-    val uriHandler = LocalUriHandler.current
-    Column(
-        modifier = Modifier.padding(
-            start = dimens.footerPaddingHorizontal,
-            end = dimens.footerPaddingHorizontal,
-            top = dimens.footerPaddingTop,
-        ),
-        verticalArrangement = Arrangement.spacedBy(dimens.footerGap),
-    ) {
-        Text(stringResource(R.string.mood_disclaimer), style = typography.footer, color = colors.textMuted)
-        Text(stringResource(R.string.mood_data_sources), style = typography.footer, color = colors.textMuted)
-        Text(stringResource(R.string.fred_notice), style = typography.footer, color = colors.textMuted)
-        Text(
-            text = stringResource(R.string.fred_terms_link),
-            style = typography.footerLink,
-            color = colors.accent,
-            modifier = Modifier
-                .clickable(role = Role.Button) { uriHandler.openUri(FRED_TERMS_URL) }
-                .padding(vertical = dimens.footerLinkPaddingVertical),
-        )
-    }
+    ValuationCard(mood.pricePosition) { onOpenPricePosition(mood.broadMarketId) }
+    ValuationCard(mood.rateBurden, onOpenRateBurden)
+    SectionTitle(stringResource(R.string.sectors_title), stringResource(R.string.sectors_description))
+    SectorListCard(mood.sectorHeader, mood.sectors, onOpenSector)
+    MoodFooter()
 }
 
 // 키 안내, 받는 중, 받지 못함
@@ -602,7 +286,7 @@ private fun KeyGuideCard(rows: List<KeyGuideRow>, onOpenSettings: () -> Unit) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
     val typography = HakBanGgulTheme.typography
-    Card(padding = dimens.cardPadding, gap = dimens.guideGap) {
+    MoodCard(padding = PaddingValues(dimens.cardPadding), gap = dimens.guideGap) {
         Column(verticalArrangement = Arrangement.spacedBy(dimens.guideTitleGap)) {
             Text(stringResource(R.string.key_guide_title), style = typography.title, color = colors.text)
             Text(stringResource(R.string.key_guide_description), style = typography.smallLoose, color = colors.textMuted)
@@ -644,7 +328,7 @@ private fun FailedCard(message: UiText, onRetryClick: () -> Unit) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
     val typography = HakBanGgulTheme.typography
-    Card(padding = dimens.cardPadding, gap = dimens.guideGap) {
+    MoodCard(padding = PaddingValues(dimens.cardPadding), gap = dimens.guideGap) {
         Column(verticalArrangement = Arrangement.spacedBy(dimens.guideTitleGap)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(dimens.iconTextGap)) {
                 Icon(
@@ -661,63 +345,6 @@ private fun FailedCard(message: UiText, onRetryClick: () -> Unit) {
     }
 }
 
-// 공용 모양
-
-@Composable
-private fun Card(padding: Dp, gap: Dp, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().cardBackground().padding(padding),
-        verticalArrangement = Arrangement.spacedBy(gap),
-        content = content,
-    )
-}
-
-@Composable
-private fun Modifier.cardBackground(): Modifier {
-    val colors = HakBanGgulTheme.colors
-    val shape = HakBanGgulTheme.shapes.card
-    return this
-        .background(colors.card, shape)
-        .border(HakBanGgulTheme.dimens.cardBorder, colors.border, shape)
-}
-
-@Composable
-private fun Divider() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(HakBanGgulTheme.dimens.divider)
-            .background(HakBanGgulTheme.colors.border),
-    )
-}
-
-// 위에 구분선이 있는 줄. 왼쪽에 이름과 그 아래 글, 오른쪽에 값
-@Composable
-private fun LineRow(
-    start: @Composable ColumnScope.() -> Unit,
-    end: @Composable () -> Unit,
-    dividerBelow: Boolean,
-    gap: Dp,
-) {
-    val dimens = HakBanGgulTheme.dimens
-    val borderColor = HakBanGgulTheme.colors.border
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                val line = dimens.divider.toPx()
-                drawRect(borderColor, size = Size(size.width, line))
-                if (dividerBelow) drawRect(borderColor, topLeft = Offset(0f, size.height - line), size = Size(size.width, line))
-            }
-            .padding(vertical = dimens.rowPaddingVertical),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(gap), content = start)
-        end()
-    }
-}
-
 @Composable
 private fun FilledButton(text: String, onClick: () -> Unit) {
     val colors = HakBanGgulTheme.colors
@@ -731,156 +358,7 @@ private fun FilledButton(text: String, onClick: () -> Unit) {
     }
 }
 
-@Composable
-private fun stageColor(stage: MarketStage): Color {
-    val colors = HakBanGgulTheme.colors
-    return when (stage) {
-        MarketStage.BULL -> colors.stageBull
-        MarketStage.NEUTRAL -> colors.stageNeutral
-        MarketStage.WEAK -> colors.stageWeak
-        MarketStage.BEAR -> colors.stageBear
-    }
-}
-
-@Composable
-private fun valuationStageColor(stage: ValuationStage): Color {
-    val colors = HakBanGgulTheme.colors
-    return when (stage) {
-        ValuationStage.LOW -> colors.valuationLow
-        ValuationStage.MIDDLE -> colors.valuationMiddle
-        ValuationStage.HIGH -> colors.valuationHigh
-    }
-}
-
-@Composable
-private fun toneColor(tone: ScoreTone): Color {
-    val colors = HakBanGgulTheme.colors
-    return when (tone) {
-        ScoreTone.POSITIVE -> colors.scorePositive
-        ScoreTone.ZERO -> colors.scoreZero
-        ScoreTone.NEGATIVE -> colors.scoreNegative
-    }
-}
-
 // 미리보기. 숫자와 날짜는 시안의 예시를 옮긴 것이다.
-
-private fun stageText(stage: MarketStage) = UiText(
-    when (stage) {
-        MarketStage.BULL -> R.string.stage_bull
-        MarketStage.NEUTRAL -> R.string.stage_neutral
-        MarketStage.WEAK -> R.string.stage_weak
-        MarketStage.BEAR -> R.string.stage_bear
-    },
-)
-
-private fun previewMood(
-    stage: MarketStage,
-    computed: MarketStage = stage,
-    composite: String,
-    compositeTone: ScoreTone,
-    gauge: Float,
-    pending: UiText? = null,
-    @Suppress("UNUSED_PARAMETER") stockScore: String = "+0.50",
-    @Suppress("UNUSED_PARAMETER") stockTone: ScoreTone = ScoreTone.POSITIVE,
-    month: Int = 11,
-    day: Int = 23,
-    pricePosition: ValuationCardUiState = previewPriceCard(),
-    rateBurden: ValuationCardUiState = previewRateCard(),
-) = MoodUiState(
-    regime = RegimeCardUiState(
-        title = UiText(R.string.regime_card_title, listOf(UiText(R.string.regime_broad_market), UiText(R.string.period_months, listOf(3)))),
-        asOfText = UiText(R.string.mood_as_of, listOf(month, day)),
-        stage = stage,
-        stageName = stageText(stage),
-        compositeScoreText = composite,
-        compositeTone = compositeTone,
-        computedStageName = stageText(computed),
-        gaugePosition = gauge,
-        pendingNotice = pending,
-        showLink = true,
-    ),
-    valuationTitle = UiText(R.string.valuation_title, listOf(UiText(R.string.period_years, listOf(2)))),
-    valuationDescription = UiText(R.string.valuation_description, listOf(UiText(R.string.period_years, listOf(2)))),
-    pricePosition = pricePosition,
-    rateBurden = rateBurden,
-    sectorHeader = SectorHeaderUiState(
-        UiText(R.string.sectors_header_name),
-        UiText(R.string.sectors_header_regime, listOf(UiText(R.string.period_months, listOf(3)))),
-        UiText(R.string.sectors_header_price, listOf(UiText(R.string.period_years, listOf(2)))),
-    ),
-    sectors = emptyList(),
-)
-
-private val priceStageNames = listOf(R.string.valuation_price_low, R.string.valuation_middle, R.string.valuation_price_high)
-private val rateStageNames = listOf(R.string.valuation_rate_low, R.string.valuation_middle, R.string.valuation_rate_high)
-
-private fun previewCard(
-    names: List<Int>,
-    name: Int,
-    subtitle: UiText,
-    score: Int,
-    stage: ValuationStage,
-    notice: UiText?,
-    evidence: List<UiText>,
-) = ValuationCardUiState(
-    name = UiText(name),
-    subtitle = subtitle,
-    scoreText = UiText(R.string.valuation_score, listOf(score, UiText(names[stage.ordinal]))),
-    stage = stage,
-    gauge = ValuationGaugeUiState(listOf(0.31f, 0.38f, 0.31f), names.map { UiText(it) }, score / 100f),
-    notice = notice,
-    evidence = evidence,
-    showLink = true,
-)
-
-private fun previewPriceCard(
-    score: Int = 74,
-    stage: ValuationStage = ValuationStage.HIGH,
-    short: String = "+4.1%",
-    long: String = "+21.4%",
-    drawdown: String = "-3.2%",
-    threeMonth: String = "+5.8%",
-    notice: UiText? = null,
-) = previewCard(
-    names = priceStageNames,
-    name = R.string.price_position_name,
-    subtitle = UiText(R.string.target_with_symbol, listOf(UiText(R.string.target_broad_market), "SPY")),
-    score = score,
-    stage = stage,
-    notice = notice,
-    evidence = listOf(
-        UiText(R.string.price_evidence_average, listOf(200, short, UiText(R.string.period_years, listOf(3)), long)),
-        UiText(R.string.price_evidence_drawdown, listOf(drawdown, UiText(R.string.period_months, listOf(3)), threeMonth)),
-    ),
-)
-
-private fun previewRateCard(
-    realYield: Any = "2.79%",
-    score: Int = 98,
-    stage: ValuationStage = ValuationStage.HIGH,
-    yearLine: UiText = UiText(R.string.rate_evidence_year_change, listOf("+0.97%p", UiText(R.string.rate_evidence_rising))),
-    treasury: Any = "4.92%",
-    policy: Any = "3.88%",
-    inflation: String = "4.1%",
-    gap: String = "+2.1%p",
-    notice: UiText? = null,
-) = previewCard(
-    names = rateStageNames,
-    name = R.string.rate_burden_name,
-    subtitle = UiText(R.string.rate_burden_subtitle, listOf(realYield)),
-    score = score,
-    stage = stage,
-    notice = notice,
-    evidence = listOf(
-        yearLine,
-        UiText(R.string.rate_evidence_rates, listOf(treasury, policy)),
-        UiText(R.string.rate_evidence_inflation, listOf(inflation, "2", gap, 10)),
-    ),
-)
-
-private fun falling(change: String) = UiText(R.string.rate_evidence_year_change, listOf(change, UiText(R.string.rate_evidence_falling)))
-
-private fun withDate(value: String, month: Int, day: Int) = UiText(R.string.evidence_value_with_date, listOf(value, month, day))
 
 @Composable
 private fun Preview(state: MarketMoodUiState) {
@@ -889,154 +367,93 @@ private fun Preview(state: MarketMoodUiState) {
     }
 }
 
-private fun assessmentState(mood: MoodUiState, banner: BannerUiState? = null) =
-    MarketMoodUiState(RefreshButtonState.ENABLED, banner, MoodBody.Assessment(mood))
+private fun assessmentState(
+    mood: MoodUiState,
+    banner: BannerUiState? = null,
+    refreshButton: RefreshButtonState = RefreshButtonState.ENABLED,
+) = MarketMoodUiState(refreshButton, banner, MoodBody.Assessment(mood))
 
-@Preview(name = "판정이 나왔을 때 (불장)", widthDp = 390, heightDp = 1670)
+@Preview(name = "시장 분위기 · 둘째 묶음: 첫 화면 (전체 장세, 섹터별)", widthDp = 390, heightDp = 1900)
 @Composable
-private fun AssessmentBullPreview() = Preview(
-    assessmentState(previewMood(MarketStage.BULL, composite = "+0.65", compositeTone = ScoreTone.POSITIVE, gauge = 0.825f)),
-)
+private fun SectorsPreview() = Preview(assessmentState(MoodPreviewData.mood()))
 
-@Preview(name = "중립인 날", widthDp = 390, heightDp = 1670)
+@Preview(name = "첫 화면 · 장세와 종합 점수가 다른 날, 주가 위치의 숫자와 단계가 다른 날", widthDp = 390, heightDp = 2000)
 @Composable
-private fun AssessmentNeutralPreview() = Preview(
+private fun SectorsPendingPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.NEUTRAL,
-            composite = "+0.33",
-            compositeTone = ScoreTone.POSITIVE,
-            gauge = 0.6625f,
-            stockScore = "+0.25",
-            pricePosition = previewPriceCard(58, ValuationStage.MIDDLE, "+2.3%", "+17.2%", "-4.0%", "+1.9%"),
-            rateBurden = previewRateCard(
-                realYield = "1.64%",
-                score = 52,
-                stage = ValuationStage.MIDDLE,
-                yearLine = falling("-0.42%p"),
-                treasury = "3.95%",
-                policy = "4.33%",
-                inflation = "2.6%",
-                gap = "+0.6%p",
+        MoodPreviewData.mood(
+            regime = regimeCard(
+                computed = MarketStage.NEUTRAL,
+                score = "+0.15",
+                tone = ScoreTone.POSITIVE,
+                gauge = 0.575f,
+                pending = pending(MarketStage.NEUTRAL, MarketStage.WEAK, 1),
             ),
+            price = priceCard(score = 33, notice = noticeLow(true, 33)),
         ),
     ),
 )
 
-@Preview(name = "물장인 날", widthDp = 390, heightDp = 1670)
+@Preview(name = "첫 화면 · 처음 받는 중 (섹터 일부를 아직 받는 중)", widthDp = 390, heightDp = 1820)
 @Composable
-private fun AssessmentBearPreview() = Preview(
+private fun SectorsLoadingPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.BEAR,
-            composite = "-0.65",
-            compositeTone = ScoreTone.NEGATIVE,
-            gauge = 0.175f,
-            stockScore = "-0.75",
-            stockTone = ScoreTone.NEGATIVE,
-            pricePosition = previewPriceCard(6, ValuationStage.LOW, "-8.4%", "-3.5%", "-24.1%", "-15.7%"),
-            rateBurden = previewRateCard(
-                realYield = "0.85%",
-                score = 22,
-                stage = ValuationStage.LOW,
-                yearLine = falling("-0.71%p"),
-                treasury = "3.10%",
-                policy = "2.50%",
-                inflation = "1.8%",
-                gap = "-0.2%p",
-            ),
-        ),
+        MoodPreviewData.mood(sectors = sectorRows(statusFrom = 6, statusRes = R.string.sector_loading)),
+        refreshButton = RefreshButtonState.REFRESHING,
     ),
 )
 
-@Preview(name = "장세와 종합 점수가 다른 날", widthDp = 390, heightDp = 1730)
+@Preview(name = "첫 화면 · 섹터 일부를 받지 못했을 때 (받은 적 없는 섹터, 전에 받은 값이 남은 섹터)", widthDp = 390, heightDp = 1900)
 @Composable
-private fun AssessmentPendingPreview() = Preview(
+private fun SectorsFailedPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.BULL,
-            computed = MarketStage.NEUTRAL,
-            composite = "+0.41",
-            compositeTone = ScoreTone.POSITIVE,
-            gauge = 0.706f,
-            pending = UiText(R.string.mood_pending_notice, listOf(stageText(MarketStage.NEUTRAL), stageText(MarketStage.BULL), 3, 1)),
-            stockScore = "+0.38",
-        ),
+        MoodPreviewData.mood(sectors = sectorRows(statusFrom = 6, statusRes = R.string.sector_failed, datedLast = true)),
+        banner = BannerUiState(UiText(R.string.banner_rate_limited_title), UiText(R.string.banner_rate_limited_message)),
     ),
 )
 
-@Preview(name = "새로 받지 못했을 때 (약세)", widthDp = 390, heightDp = 1760)
+@Preview(name = "시장 분위기 · 중립인 날", widthDp = 390, heightDp = 1900)
 @Composable
-private fun AssessmentStalePreview() = Preview(
+private fun NeutralPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.WEAK,
-            composite = "-0.20",
-            compositeTone = ScoreTone.NEGATIVE,
-            gauge = 0.40f,
-            stockScore = "-0.50",
-            stockTone = ScoreTone.NEGATIVE,
-            day = 18,
-            pricePosition = previewPriceCard(41, ValuationStage.MIDDLE, "-1.2%", "+14.0%", "-8.9%", "-3.4%"),
+        MoodPreviewData.mood(
+            regime = regimeCard(stage = MarketStage.NEUTRAL, score = "+0.33", tone = ScoreTone.POSITIVE, gauge = 0.6625f),
+            price = priceCard(score = 58, stage = ValuationStage.MIDDLE),
+            rate = rateCard(realYield = "1.64%", score = 52, stage = ValuationStage.MIDDLE),
         ),
-        banner = BannerUiState(UiText(R.string.banner_stale_title), UiText(R.string.banner_no_connection_message)),
     ),
 )
 
-@Preview(name = "매매 판단의 숫자와 단계가 다른 날", widthDp = 390, heightDp = 1790)
+@Preview(name = "시장 분위기 · 물장인 날", widthDp = 390, heightDp = 1900)
 @Composable
-private fun ValuationBufferPreview() = Preview(
+private fun BearPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.NEUTRAL,
-            composite = "+0.33",
-            compositeTone = ScoreTone.POSITIVE,
-            gauge = 0.6625f,
-            stockScore = "+0.25",
-            pricePosition = previewPriceCard(
-                33,
-                ValuationStage.LOW,
-                "+0.6%",
-                "+9.8%",
-                "-6.1%",
-                "-0.8%",
-                notice = UiText(R.string.valuation_notice_low, listOf(33, UiText(R.string.valuation_price_low), 36)),
-            ),
-            rateBurden = previewRateCard(
-                realYield = "2.05%",
-                score = 67,
-                stage = ValuationStage.HIGH,
-                yearLine = falling("-0.18%p"),
-                treasury = "4.30%",
-                policy = "4.33%",
-                inflation = "2.9%",
-                gap = "+0.9%p",
-                notice = UiText(R.string.valuation_notice_high, listOf(67, UiText(R.string.valuation_rate_high), 64)),
-            ),
+        MoodPreviewData.mood(
+            regime = regimeCard(stage = MarketStage.BEAR, score = "-0.65", gauge = 0.175f),
+            price = priceCard(score = 6),
+            rate = rateCard(realYield = "0.85%", score = 22, stage = ValuationStage.LOW),
         ),
     ),
 )
 
-@Preview(name = "금리 값의 날짜가 다르고 1년 전과 같은 날", widthDp = 390, heightDp = 1730)
+@Preview(name = "시장 분위기 · 금리 값의 날짜가 다르고 1년 전과 같은 날", widthDp = 390, heightDp = 1900)
 @Composable
-private fun ValuationRateDatePreview() = Preview(
+private fun RateDatePreview() = Preview(
+    assessmentState(MoodPreviewData.mood(rate = rateCard(realYield = MoodPreviewData.withDate("2.79%", 11, 20)))),
+)
+
+@Preview(name = "시장 분위기 · 매매 판단의 숫자와 단계가 다른 날", widthDp = 390, heightDp = 1960)
+@Composable
+private fun BufferPreview() = Preview(
     assessmentState(
-        previewMood(
-            MarketStage.BULL,
-            composite = "+0.65",
-            compositeTone = ScoreTone.POSITIVE,
-            gauge = 0.825f,
-            rateBurden = previewRateCard(
-                realYield = withDate("2.79%", 11, 20),
-                yearLine = UiText(R.string.rate_evidence_year_same),
-                treasury = withDate("4.92%", 11, 20),
-                policy = withDate("3.88%", 11, 20),
-            ),
+        MoodPreviewData.mood(
+            price = priceCard(score = 33, notice = noticeLow(true, 33)),
+            rate = rateCard(realYield = "2.05%", score = 67, notice = noticeHigh(false, 67)),
         ),
     ),
 )
 
-@Preview(name = "키가 없을 때", widthDp = 390, heightDp = 844)
+@Preview(name = "시장 분위기 · 키가 없을 때", widthDp = 390, heightDp = 844)
 @Composable
 private fun KeyGuidePreview() = Preview(
     MarketMoodUiState(
@@ -1061,11 +478,11 @@ private fun KeyGuidePreview() = Preview(
     ),
 )
 
-@Preview(name = "받는 중", widthDp = 390, heightDp = 844)
+@Preview(name = "시장 분위기 · 받는 중", widthDp = 390, heightDp = 844)
 @Composable
 private fun LoadingPreview() = Preview(MarketMoodUiState(RefreshButtonState.REFRESHING, null, MoodBody.Loading))
 
-@Preview(name = "한 번도 받지 못했을 때", widthDp = 390, heightDp = 844)
+@Preview(name = "시장 분위기 · 한 번도 받지 못했을 때", widthDp = 390, heightDp = 844)
 @Composable
 private fun FailedPreview() = Preview(
     MarketMoodUiState(RefreshButtonState.ENABLED, null, MoodBody.Failed(UiText(R.string.mood_failed_no_connection))),

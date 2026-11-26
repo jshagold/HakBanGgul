@@ -99,6 +99,38 @@ data class AppDimens(
     // 근거 줄 덩어리의 위 여백(그 위에 구분선)
     val valuationEvidencePaddingTop: Dp = 10.dp,
 
+    // 링크 줄("근거와 다른 기간 ›"): 높이(위에 구분선), 화살표
+    val linkRowHeight: Dp = 44.dp,
+    val linkArrow: Dp = 16.dp,
+    // 링크가 있는 카드의 아래 여백: 장세 카드, 매매 판단 카드(시안의 카드 아래 여백과 링크의 margin-bottom: -8px을 합친 값)
+    val regimeCardLinkPaddingBottom: Dp = 4.dp,
+    val valuationCardLinkPaddingBottom: Dp = 0.dp,
+
+    // 다른 기간 카드: 안쪽 여백 위아래와 좌우, 카드 안 덩어리 사이, 이름과 기간 글 사이, 카드 사이
+    val otherCardPaddingVertical: Dp = 14.dp,
+    val otherCardPaddingHorizontal: Dp = 16.dp,
+    val otherCardGap: Dp = 10.dp,
+    val otherCardNameGap: Dp = 1.dp,
+    val otherCardsGap: Dp = 8.dp,
+
+    // 섹터 목록 카드: 안쪽 여백 위, 좌우, 아래, 머리 줄 아래, 칸 사이, 줄 높이(최소), 장세 칸 폭, 주가 위치 칸 폭,
+    // 화살표 칸, 상태 글 칸 폭, 이름과 기준 날짜 줄 사이
+    val sectorCardPaddingTop: Dp = 12.dp,
+    val sectorCardPaddingHorizontal: Dp = 16.dp,
+    val sectorCardPaddingBottom: Dp = 4.dp,
+    val sectorHeaderPaddingBottom: Dp = 8.dp,
+    val sectorColumnGap: Dp = 8.dp,
+    val sectorRowMinHeight: Dp = 52.dp,
+    val sectorRegimeWidth: Dp = 52.dp,
+    val sectorPriceWidth: Dp = 84.dp,
+    val sectorArrow: Dp = 16.dp,
+    val sectorStatusWidth: Dp = 160.dp,
+    val sectorNameDateGap: Dp = 1.dp,
+
+    // 상세 화면과 섹터 화면의 위쪽 줄: 좌우 여백, 뒤로 가기 버튼과 화면 이름 사이(아이콘은 icon, 버튼은 iconButton)
+    val detailTopBarPaddingHorizontal: Dp = 4.dp,
+    val detailTopBarGap: Dp = 4.dp,
+
     // 설정 화면의 위쪽 줄: 좌우 여백, 뒤로 가기 버튼과 화면 이름 사이, 뒤로 가기 아이콘
     val settingsTopBarPaddingHorizontal: Dp = 8.dp,
     val settingsTopBarGap: Dp = 4.dp,

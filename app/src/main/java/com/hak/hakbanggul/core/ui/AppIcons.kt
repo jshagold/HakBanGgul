@@ -45,6 +45,13 @@ object AppIcons {
         }
     }
 
+    // 다음으로(›): 선 굵기 2, 끝과 꺾이는 곳은 둥글게. 링크 줄과 섹터 줄이 함께 쓴다.
+    val Chevron: ImageVector by lazy {
+        icon("Chevron") {
+            strokePath("M9 6l6 6-6 6")
+        }
+    }
+
     // 키 보기: 눈 모양
     val Eye: ImageVector by lazy {
         icon("Eye") {

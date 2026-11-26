@@ -54,6 +54,8 @@ data class KeyGuideRow(
 
 // 첫 화면의 판정
 data class MoodUiState(
+    // 전체 시장의 대상 ID. 전체 장세 카드와 주가 위치 카드의 링크가 연다.
+    val broadMarketId: String,
     // 전체 장세 카드
     val regime: RegimeCardUiState,
     // 매매 판단 제목("지난 2년과 비교하면")과 그 아래 한 줄

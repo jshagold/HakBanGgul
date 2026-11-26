@@ -75,6 +75,9 @@ data class AppColors(
     val valuationGaugeMiddle: Color = Color(0xFFB7BEC8),
     val valuationGaugeHigh: Color = Color(0xFFE9A23B),
 
+    // 섹터 줄의 "›"(disabled와 값이 조금 다르다). "근거와 다른 기간 ›"의 글과 화살표는 accent를 쓴다.
+    val sectorChevron: Color = Color(0xFF8A929C),
+
     // 홈 화면 위젯. 값이 gaugeNeutral과 같아도 쓰는 곳이 달라 따로 둔다.
     // 비활성 새로 고침 아이콘
     val widgetRefreshDisabled: Color = Color(0xFFB7BEC8),
