@@ -40,7 +40,7 @@ class MarketMoodExposedUseCaseTest {
     private val keys = FakeApiKeyProvider()
 
     private fun TestScope.newRefresher(): MarketDataRefresher {
-        val calculator = MoodCalculator(ValuationCalculator())
+        val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
         val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock)
@@ -62,7 +62,7 @@ class MarketMoodExposedUseCaseTest {
 
     // 계산용 디스패처로 이 테스트의 스케줄러를 쓰는 시험용 디스패처를 넘긴다.
     private fun TestScope.observeMood(): Flow<MoodAssessment?> =
-        ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))()
+        ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(RegimeCalculator(), ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))()
 
     private suspend fun TestScope.firstMoodWith(stored: MoodTestData.Builder?): MoodAssessment? {
         repository.setStored(stored, null)
@@ -221,7 +221,7 @@ class MarketMoodExposedUseCaseTest {
     fun `R-23 계산은 넘긴 디스패처에서 돈다`() = runTest {
         repository.setStored(dataA(), null)
         val computeDispatcher = StandardTestDispatcher(testScheduler)
-        val useCase = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), computeDispatcher)
+        val useCase = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(RegimeCalculator(), ValuationCalculator()), computeDispatcher)
         val received = mutableListOf<MoodAssessment?>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { useCase().toList(received) }
 
@@ -248,5 +248,22 @@ class MarketMoodExposedUseCaseTest {
     @Test
     fun `R-58 R-81 DFF가 없으면 null`() = runTest {
         assertNull(firstMoodWith(dataA().removeSeries(MoodTestData.POLICY_RATE)))
+    }
+
+    @Test
+    fun `R-58 R-81 데이터 A면 첫 값의 표시 단계 BULL, 기준 날짜 2026-11-23, 두 매매 판단 50 MIDDLE`() = runTest {
+        val mood = firstMoodWith(dataA())!!
+        assertEquals(MarketStage.BULL, mood.displayedStage)
+        assertEquals(MoodTestData.date("2026-11-23"), mood.asOfDate)
+        assertEquals(50 to ValuationStage.MIDDLE, mood.valuation.pricePosition.score to mood.valuation.pricePosition.displayedStage)
+        assertEquals(50 to ValuationStage.MIDDLE, mood.valuation.rateBurden.score to mood.valuation.rateBurden.displayedStage)
+    }
+
+    @Test
+    fun `R-58 R-81 섹터 XLK, QQQ, SMH를 모두 빼도 판정이 그대로 있다`() = runTest {
+        val all = firstMoodWith(dataA())
+        val withoutSectors = firstMoodWith(dataA().removeSeries("XLK").removeSeries("QQQ").removeSeries("SMH"))
+        assertNotNull(withoutSectors)
+        assertEquals(all, withoutSectors)
     }
 }

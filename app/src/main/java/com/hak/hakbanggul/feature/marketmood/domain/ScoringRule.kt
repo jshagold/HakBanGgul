@@ -1,14 +1,23 @@
 package com.hak.hakbanggul.feature.marketmood.domain
 
-// 점수 기준의 종류와 기준 숫자
+// 점수 기준의 종류와 기준 숫자. 기간마다 다른 숫자(평균 일수, 고점 일수, 고점 기준, 기울기 일수)는 RegimePeriod에 있다.
 sealed interface ScoringRule {
 
-    // 가격 추세: 평균선 위아래(추세 점수)와 최근 1년 고점에서의 하락률(낙폭 점수)의 평균
-    data class PriceTrend(
-        val averageDays: Int,
-        val shallowDrawdown: Double,
-        val deepDrawdown: Double,
+    // 용어: 평균 대비
+    // 평균 괴리 ≥ averageBand면 +1, -averageBand ≤ 괴리 < averageBand면 0, 그 밖 -1
+    data class AboveAverage(
+        // 용어: 평균 대비 기준
+        // 비율(0.02는 2%)
+        val averageBand: Double,
     ) : ScoringRule
+
+    // 용어: 고점 대비
+    // 하락률 ≤ 얕은 고점 기준이면 +1, ≥ 깊은 고점 기준이면 -1, 그 사이 0
+    data object FromHigh : ScoringRule
+
+    // 용어: 평균의 기울기
+    // 기울기 ≥ 0이면 +1, 그 밖 -1
+    data object AverageSlope : ScoringRule
 
     // 값이 높을수록 좋음: plusFrom 이상 +1, zeroFrom 이상 0, 그 밖 -1
     data class HighIsGood(

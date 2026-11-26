@@ -18,6 +18,7 @@ import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.
 import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.RegimeCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import kotlinx.coroutines.flow.first
@@ -440,7 +441,7 @@ class ObserveWidgetStateUseCaseTest {
         val mood = ObserveMoodUseCase(
             f.rulesRepository,
             f.repository,
-            MoodCalculator(ValuationCalculator()),
+            MoodCalculator(RegimeCalculator(), ValuationCalculator()),
             UnconfinedTestDispatcher(testScheduler),
         )().first()!!
         assertEquals(ValuationStage.MIDDLE, mood.valuation.rateBurden.scoredStage)

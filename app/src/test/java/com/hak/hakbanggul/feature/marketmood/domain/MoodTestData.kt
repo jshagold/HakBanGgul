@@ -5,7 +5,7 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.util.TreeMap
 
-// 단위 4의 테스트 지시에 적힌 데이터 A, B를 만든다. 단위 5, 7의 테스트도 쓴다.
+// 테스트 지시에 적힌 데이터 A, B와 시험용 규칙을 만든다.
 object MoodTestData {
     val STOCKS = listOf("SPY", "QQQ", "XLK", "SMH")
     const val YIELD_CURVE = "T10Y2Y"
@@ -18,19 +18,46 @@ object MoodTestData {
     // 매매 판단의 시리즈 넷
     val VALUATION_SERIES = listOf(REAL_YIELD, TREASURY_10Y, POLICY_RATE, CONSUMER_PRICE)
 
-    // 시험용 규칙: 기본 규칙에서 매매 판단의 짧은 평균 5, 긴 평균 10, 위치 기간 20, 평균 일수 3, 3개월 5로 줄인 것.
-    // 데이터 A(2년)로 매매 판단을 낼 수 있게 하려는 것이다.
+    // 시험용 규칙: 기본 규칙에서 대상을 전체 시장 SPY와 섹터 셋(QQQ, SMH, XLK, 기본 규칙의 순서)으로 줄이고,
+    // 매매 판단의 짧은 평균 5, 긴 평균 10, 평균 일수 3, 3개월 5, 기간 1y 10, 2y 20, 3y 30, 5y 50(메인 2y)으로 줄인 것.
+    // 이름(PeriodLength)과 장세의 기간, 나머지는 기본 규칙 그대로다. 데이터 A(약 2년)로 모든 콘텐츠를 낼 수 있다.
     val RULES: MoodRules = DefaultMoodRules.rules.let { rules ->
         rules.copy(
+            sectors = rules.sectors.filter { it.id in setOf("nasdaq_100", "semiconductors", "technology") },
             valuation = rules.valuation.copy(
                 shortAverageDays = 5,
                 longAverageDays = 10,
-                positionWindow = 20,
                 smoothingDays = 3,
                 threeMonthDays = 5,
+                periods = listOf(
+                    ValuationPeriod("1y", PeriodLength(1, PeriodUnit.YEARS), 10),
+                    ValuationPeriod("2y", PeriodLength(2, PeriodUnit.YEARS), 20),
+                    ValuationPeriod("3y", PeriodLength(3, PeriodUnit.YEARS), 30),
+                    ValuationPeriod("5y", PeriodLength(5, PeriodUnit.YEARS), 50),
+                ),
+                mainPeriodId = "2y",
             ),
         )
     }
+
+    // 매매 판단의 기간 하나(id)의 위치 기간만 바꾼다.
+    fun ValuationRules.withWindow(id: String, window: Int): ValuationRules =
+        copy(periods = periods.map { if (it.id == id) it.copy(positionWindow = window) else it })
+
+    // 매매 판단의 기간을 위치 기간 window인 메인 하나로 둔다.
+    fun ValuationRules.withSingleWindow(window: Int): ValuationRules =
+        copy(periods = listOf(ValuationPeriod("main", PeriodLength(2, PeriodUnit.YEARS), window)), mainPeriodId = "main")
+
+    // 시험용 규칙에서 매매 판단의 메인 기간의 위치 기간만 바꾼다.
+    fun MoodRules.withMainWindow(window: Int): MoodRules =
+        copy(valuation = valuation.withWindow(valuation.mainPeriodId, window))
+
+    // 장세의 묶음 비중만 바꾼다(주식, 채권 신호 순서).
+    fun MoodRules.withRegimeWeights(stocks: Double, bonds: Double): MoodRules = copy(
+        regime = regime.copy(
+            groups = regime.groups.map { if (it.id == "stocks") it.copy(weight = stocks) else it.copy(weight = bonds) },
+        ),
+    )
 
     val START: LocalDate = LocalDate.of(2024, 11, 25)
     val END: LocalDate = LocalDate.of(2026, 11, 23)
@@ -95,9 +122,10 @@ object MoodTestData {
         return builder
     }
 
-    // 데이터 B: 데이터 A에서 XLK 2026-01-05 120, SMH 2026-11-23 80, T10Y2Y 2026-11-23 0.29,
-    // BAMLH0A0HYM2는 2026-11-20까지만 있고 그날 값 3.76
+    // 데이터 B: 데이터 A에서 SPY 2026-11-23 99.0, T10Y2Y 2026-11-23 0.29, BAMLH0A0HYM2는 2026-11-20까지만 있고 그날 값 3.76,
+    // XLK 2026-01-05 120, SMH 2026-11-23 80. 전체 시장의 메인 장세가 "불장 표시, 중립 계산, 1일째"가 된다.
     fun dataB(): Builder = dataA()
+        .set("SPY", "2026-11-23", 99.0)
         .set("XLK", "2026-01-05", 120.0)
         .set("SMH", "2026-11-23", 80.0)
         .set(YIELD_CURVE, "2026-11-23", 0.29)
@@ -131,7 +159,7 @@ object MoodTestData {
         // 모든 시리즈를 day까지만 둔다.
         fun truncateAllAfter(day: String) = apply { series.keys.forEach { truncateAfter(it, date(day)) } }
 
-        // 나쁜 날: T10Y2Y -0.10, BAMLH0A0HYM2 7.00. 데이터 A에서는 그날 현재 상태가 0.4(중립)가 된다.
+        // 나쁜 날: T10Y2Y -0.10, BAMLH0A0HYM2 7.00. 데이터 A에서는 그날 현재 상태가 0.166667(중립)이 된다.
         fun badDay(vararg days: String) = apply {
             days.forEach {
                 set(YIELD_CURVE, it, -0.10)

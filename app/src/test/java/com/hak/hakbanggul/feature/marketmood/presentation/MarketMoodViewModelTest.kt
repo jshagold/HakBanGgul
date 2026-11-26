@@ -21,15 +21,16 @@ import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.valuesForScores
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.closesForScores
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
-import com.hak.hakbanggul.feature.marketmood.domain.SeriesKind
-import com.hak.hakbanggul.feature.marketmood.domain.IndicatorSeries
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.HIGH_YIELD
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.YIELD_CURVE
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataB
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.withRegimeWeights
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.withSingleWindow
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshMarketDataUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.RegimeCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -72,7 +73,7 @@ class MarketMoodViewModelTest {
     private fun TestScope.newViewModel(): MarketMoodViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val clock = FakeClock(now)
-        val calculator = MoodCalculator(ValuationCalculator())
+        val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
         val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
@@ -172,10 +173,9 @@ class MarketMoodViewModelTest {
         assertEquals(listOf(UiText(R.string.group_stocks), UiText(R.string.group_bond_signals)), mood.groups.map { it.name })
         assertEquals(
             listOf(
-                R.string.indicator_broad_market,
-                R.string.indicator_nasdaq_100,
-                R.string.indicator_technology,
-                R.string.indicator_semiconductors,
+                R.string.indicator_above_average,
+                R.string.indicator_from_high,
+                R.string.indicator_average_slope,
             ).map { UiText(it) },
             mood.groups[0].indicators.map { it.name },
         )
@@ -195,7 +195,7 @@ class MarketMoodViewModelTest {
         assertEquals(MarketStage.BULL, mood.stage)
         assertEquals(UiText(R.string.stage_bull), mood.stageName)
         assertEquals(UiText(R.string.mood_as_of, listOf(11, 23)), mood.asOfText)
-        assertEquals("+0.41", mood.compositeScoreText)
+        assertEquals("+0.15", mood.compositeScoreText)
         assertEquals(ScoreTone.POSITIVE, mood.compositeTone)
         assertEquals(UiText(R.string.stage_neutral), mood.computedStageName)
     }
@@ -203,26 +203,27 @@ class MarketMoodViewModelTest {
     @Test
     fun `R-06 데이터 B의 눈금 위치`() = runTest {
         stored(dataB())
-        assertEquals(0.70625f, newViewModel().mood.gaugePosition, 1e-6f)
+        assertEquals(0.575f, newViewModel().mood.gaugePosition, 1e-6f)
     }
 
     @Test
     fun `R-06 데이터 A의 눈금 위치`() = runTest {
         stored(dataA())
-        assertEquals(1.0f, newViewModel().mood.gaugePosition, 1e-6f)
+        assertEquals(0.8833335f, newViewModel().mood.gaugePosition, 1e-6f)
     }
 
     @Test
     fun `R-06 위 경계가 0_6이면 눈금 위치도 따라 바뀐다`() = runTest {
         stored(dataB())
-        rulesRepository.rules.value = MoodTestData.RULES.copy(upperBoundary = 0.6)
-        assertEquals(0.671875f, newViewModel().mood.gaugePosition, 1e-6f)
+        rulesRepository.rules.value = MoodTestData.RULES.copy(regime = MoodTestData.RULES.regime.copy(upperBoundary = 0.6))
+        assertEquals(0.5625f, newViewModel().mood.gaugePosition, 1e-6f)
     }
 
     @Test
     fun `R-06 현재 상태 -0_5의 눈금 위치`() = runTest {
+        rulesRepository.rules.value = MoodTestData.RULES.withRegimeWeights(0.75, 0.25)
         stored(
-            dataA().setStocks("2026-11-23", 89.9).set(YIELD_CURVE, "2026-11-23", -0.01).set(HIGH_YIELD, "2026-11-23", 5.00),
+            dataA().set("SPY", "2026-11-23", 93.0).set(YIELD_CURVE, "2026-11-23", 0.29).set(HIGH_YIELD, "2026-11-23", 5.00),
         )
         assertEquals(0.25f, newViewModel().mood.gaugePosition, 1e-6f)
     }
@@ -253,8 +254,8 @@ class MarketMoodViewModelTest {
 
         assertEquals(UiText(R.string.group_stocks), groups[0].name)
         assertEquals(UiText(R.string.group_weight, listOf(70)), groups[0].weightText)
-        assertEquals("+0.38", groups[0].scoreText)
-        assertEquals(ScoreTone.POSITIVE, groups[0].scoreTone)
+        assertEquals("0.00", groups[0].scoreText)
+        assertEquals(ScoreTone.ZERO, groups[0].scoreTone)
         assertEquals(UiText(R.string.group_bond_signals), groups[1].name)
         assertEquals(UiText(R.string.group_weight, listOf(30)), groups[1].weightText)
         assertEquals("+0.50", groups[1].scoreText)
@@ -268,21 +269,22 @@ class MarketMoodViewModelTest {
         stored(dataB())
         val viewModel = newViewModel()
 
-        val broad = viewModel.indicator(R.string.indicator_broad_market)
-        assertEquals(UiText(R.string.indicator_broad_market_suffix), broad.suffix)
-        assertEquals(UiText(R.string.evidence_price, listOf("0.0%", "0.0%")), broad.evidence)
-        assertEquals("+1.0", broad.scoreText)
+        // 주식 세 항목의 근거는 임시로 부호 붙인 % 하나다(장세 화면의 글은 단위 5).
+        val above = viewModel.indicator(R.string.indicator_above_average)
+        assertNull(above.suffix)
+        assertEquals(UiText(R.string.evidence_value, listOf("-1.0%")), above.evidence)
+        assertEquals("0.0", above.scoreText)
 
-        val technology = viewModel.indicator(R.string.indicator_technology)
-        assertEquals(UiText(R.string.indicator_technology_suffix), technology.suffix)
-        assertEquals(UiText(R.string.evidence_price, listOf("0.0%", "-16.7%")), technology.evidence)
-        assertEquals("+0.5", technology.scoreText)
+        val fromHigh = viewModel.indicator(R.string.indicator_from_high)
+        assertNull(fromHigh.suffix)
+        assertEquals(UiText(R.string.evidence_value, listOf("-1.0%")), fromHigh.evidence)
+        assertEquals("+1.0", fromHigh.scoreText)
 
-        val semis = viewModel.indicator(R.string.indicator_semiconductors)
-        assertEquals(UiText(R.string.indicator_semiconductors_suffix), semis.suffix)
-        assertEquals(UiText(R.string.evidence_price, listOf("-19.9%", "-20.0%")), semis.evidence)
-        assertEquals("-1.0", semis.scoreText)
-        assertEquals(ScoreTone.NEGATIVE, semis.scoreTone)
+        val slope = viewModel.indicator(R.string.indicator_average_slope)
+        assertNull(slope.suffix)
+        assertEquals(UiText(R.string.evidence_value, listOf("0.0%")), slope.evidence)
+        assertEquals("-1.0", slope.scoreText)
+        assertEquals(ScoreTone.NEGATIVE, slope.scoreTone)
 
         val curve = viewModel.indicator(R.string.indicator_yield_curve)
         assertEquals(UiText(R.string.indicator_yield_curve_suffix), curve.suffix)
@@ -460,13 +462,13 @@ class MarketMoodViewModelTest {
     fun `R-23 새로 받아 저장하면 종합 점수가 바뀐다`() = runTest {
         stored(dataA())
         val viewModel = newViewModel()
-        assertEquals("+1.00", viewModel.mood.compositeScoreText)
+        assertEquals("+0.77", viewModel.mood.compositeScoreText)
         repository.remote = dataB()
 
         viewModel.onRefreshClick()
         advanceUntilIdle()
 
-        assertEquals("+0.41", viewModel.mood.compositeScoreText)
+        assertEquals("+0.15", viewModel.mood.compositeScoreText)
     }
 
     @Test
@@ -541,15 +543,14 @@ class MarketMoodViewModelTest {
 
     // 매매 판단 두 카드 (단위 4)
 
-    private val testPrice = "TEST_PRICE"
+    // 주가 위치는 전체 시장의 종가로 낸다.
+    private val testPrice = "SPY"
 
-    // 점수를 만들기 쉬운 규칙: 주가 위치는 시험용 시리즈 TEST_PRICE를 보고, 위치 기간 101, 평균 일수 1이다.
+    // 점수를 만들기 쉬운 규칙: 위치 기간 101(메인 기간 하나), 평균 일수 1이다.
     private fun stageRules(low: Int = 30, high: Int = 70, buffer: Int = 5) = MoodTestData.RULES.copy(
-        valuation = MoodTestData.RULES.valuation.copy(
-            priceSeries = IndicatorSeries(TWELVE_DATA, testPrice, SeriesKind.DAILY_CLOSE),
+        valuation = MoodTestData.RULES.valuation.withSingleWindow(101).copy(
             shortAverageDays = 2,
             longAverageDays = 2,
-            positionWindow = 101,
             smoothingDays = 1,
             threeMonthDays = 2,
             yearAgoDays = 1,
@@ -744,13 +745,12 @@ class MarketMoodViewModelTest {
         // 짧은 평균 2, 긴 평균 3, 위치 기간 3, 3개월 3인 규칙에서 마지막 종가 100의 괴리가 +0.041, +0.214, 낙폭 -0.032, 3개월 +0.058이 되게 한다.
         val p = 200 / 1.041 - 100
         val q = 300 / 1.214 - 100 - p
-        val closes = listOf(100 / 0.968, 100 / 1.058, q, p, 100.0)
+        // 앞에 100을 70개 두어 전체 시장의 장세도 낼 수 있게 한다(근거 넷은 마지막 다섯 종가로 정해진다).
+        val closes = List(70) { 100.0 } + listOf(100 / 0.968, 100 / 1.058, q, p, 100.0)
         rulesRepository.rules.value = MoodTestData.RULES.copy(
-            valuation = MoodTestData.RULES.valuation.copy(
-                priceSeries = IndicatorSeries(TWELVE_DATA, testPrice, SeriesKind.DAILY_CLOSE),
+            valuation = MoodTestData.RULES.valuation.withSingleWindow(3).copy(
                 shortAverageDays = 2,
                 longAverageDays = 3,
-                positionWindow = 3,
                 smoothingDays = 1,
                 threeMonthDays = 3,
             ),

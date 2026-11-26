@@ -64,18 +64,12 @@
     <string name="group_weight">비중 %1$d%%</string>
     <string name="group_stocks">주식</string>
     <string name="group_bond_signals">채권 신호</string>
-    <string name="indicator_broad_market">전체 시장</string>
-    <string name="indicator_broad_market_suffix">SPY</string>
-    <string name="indicator_nasdaq_100">나스닥 100</string>
-    <string name="indicator_nasdaq_100_suffix">QQQ</string>
-    <string name="indicator_technology">기술</string>
-    <string name="indicator_technology_suffix">XLK</string>
-    <string name="indicator_semiconductors">반도체</string>
-    <string name="indicator_semiconductors_suffix">SMH</string>
+    <string name="indicator_above_average">평균 대비</string>
+    <string name="indicator_from_high">고점 대비</string>
+    <string name="indicator_average_slope">평균의 기울기</string>
     <string name="indicator_yield_curve">장단기 금리차</string>
     <string name="indicator_yield_curve_suffix">10년 - 2년</string>
     <string name="indicator_high_yield_spread">하이일드 스프레드</string>
-    <string name="evidence_price">200일 평균보다 %1$s · 고점보다 %2$s</string>
     <string name="evidence_value">%1$s</string>
     <string name="evidence_value_with_date">%1$s · %2$d월 %3$d일 값</string>
 

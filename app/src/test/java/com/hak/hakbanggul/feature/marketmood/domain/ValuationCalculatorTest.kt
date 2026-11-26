@@ -5,6 +5,7 @@ import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.date
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.closesForScores
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.valuesForScores
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.withSingleWindow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -23,29 +24,31 @@ class ValuationCalculatorTest {
     private val policy = "DFF"
     private val cpi = "CPIAUCSL"
 
+    // 기본 규칙의 매매 판단에 위치 기간 1260인 메인 기간 하나만 둔 규칙
+    private val defaultRules: ValuationRules = DefaultMoodRules.rules.valuation.withSingleWindow(1260)
+
     // 작은 규칙: 숫자를 줄여 확인하기 쉽게 한 규칙. 1년 전은 1일로 줄여 적은 값으로도 금리 부담을 낼 수 있게 한다.
+    // 위치 기간은 메인 기간 하나(3)다.
     private val small: ValuationRules = DefaultMoodRules.rules.valuation.copy(
         shortAverageDays = 2,
         longAverageDays = 3,
         shortWeight = 2.0,
         longWeight = 1.0,
-        positionWindow = 3,
         smoothingDays = 1,
         threeMonthDays = 2,
         yearAgoDays = 1,
-    )
+    ).withSingleWindow(3)
 
     // 점수로 정한 단계와 표시 단계를 볼 때의 규칙: 위치 기간 101, 평균 일수 1이면 점수가 "앞 100개 값 가운데 그날의 값보다 작은 값의 수"다.
     // 주가 위치는 짧은 평균과 긴 평균을 둘 다 2로 두어 두 괴리가 같게 한다.
     private val stageRules: ValuationRules = small.copy(
         shortAverageDays = 2,
         longAverageDays = 2,
-        positionWindow = 101,
         smoothingDays = 1,
         lowBoundary = 30,
         highBoundary = 70,
         buffer = 5,
-    )
+    ).withSingleWindow(101)
 
     private fun series(values: List<Double>, endDay: LocalDate = end): List<DailyValue> =
         MoodTestData.weekdaysEndingAt(endDay, values.size).zip(values) { day, value -> DailyValue(day, value) }
@@ -65,8 +68,12 @@ class ValuationCalculatorTest {
         )
     }
 
+    // 주가 위치는 values의 SPY를 대상의 종가로 넘긴다.
+    private fun calc(rules: ValuationRules, values: Map<String, List<DailyValue>>, asOf: LocalDate): ValuationAssessment? =
+        calculator.assess(rules, values[spy], values, asOf)
+
     private fun assess(rules: ValuationRules, values: Map<String, List<DailyValue>>, asOf: LocalDate = end): ValuationAssessment =
-        requireNotNull(calculator.assess(rules, values, asOf)) { "매매 판단을 낼 수 있어야 한다" }
+        requireNotNull(calc(rules, values, asOf)) { "매매 판단을 낼 수 있어야 한다" }
 
     // R-72, R-73, R-74 두 괴리, 3개월 수익률, 낼 수 있는 날
 
@@ -99,22 +106,22 @@ class ValuationCalculatorTest {
     @Test
     fun `R-72 넷째 날에는 긴 괴리가 위치 기간만큼 없어 null`() {
         val closes = series(listOf(10.0, 12.0, 11.0, 13.0, 12.0))
-        assertNull(calculator.assess(small, base() + (spy to closes), closes[3].date))
+        assertNull(calc(small, base() + (spy to closes), closes[3].date))
     }
 
     @Test
     fun `R-72 기본 규칙에서 SPY 종가 2034개면 매매 판단이 있고 2033개면 null`() {
-        val rules = DefaultMoodRules.rules.valuation
+        val rules = defaultRules
         val others = base(count = 1300)
-        assertNotNull(calculator.assess(rules, others + (spy to series(List(2034) { 100.0 + it % 7 })), end))
-        assertNull(calculator.assess(rules, others + (spy to series(List(2033) { 100.0 + it % 7 })), end))
+        assertNotNull(calc(rules, others + (spy to series(List(2034) { 100.0 + it % 7 })), end))
+        assertNull(calc(rules, others + (spy to series(List(2033) { 100.0 + it % 7 })), end))
     }
 
     // R-73 같은 값
 
     @Test
     fun `R-73 같은 값은 반으로 센다`() {
-        val rules = small.copy(positionWindow = 5, smoothingDays = 1)
+        val rules = small.copy(smoothingDays = 1).withSingleWindow(5)
         val result = assess(rules, base() + (realYield to series(listOf(1.0, 2.0, 2.0, 3.0, 2.0)))).rateBurden
         assertEquals(50, result.score)
     }
@@ -123,23 +130,23 @@ class ValuationCalculatorTest {
 
     @Test
     fun `R-75 12_5는 13으로 올린다`() {
-        val rules = small.copy(positionWindow = 5, smoothingDays = 2)
+        val rules = small.copy(smoothingDays = 2).withSingleWindow(5)
         val result = assess(rules, base() + (realYield to series(listOf(5.0, 4.0, 3.0, 2.0, 1.0, 1.5)))).rateBurden
         assertEquals(13, result.score)
     }
 
     @Test
     fun `R-75 실질금리 값이 위치 기간보다 적으면 null`() {
-        val rules = small.copy(positionWindow = 5, smoothingDays = 1)
-        assertNull(calculator.assess(rules, base() + (realYield to series(listOf(1.0, 2.0, 3.0, 4.0))), end))
+        val rules = small.copy(smoothingDays = 1).withSingleWindow(5)
+        assertNull(calc(rules, base() + (realYield to series(listOf(1.0, 2.0, 3.0, 4.0))), end))
     }
 
     @Test
     fun `R-75 기본 규칙에서 실질금리 값 1279개면 금리 부담이 있고 1278개면 null`() {
-        val rules = DefaultMoodRules.rules.valuation
+        val rules = defaultRules
         val others = base(count = 2100)
-        assertNotNull(calculator.assess(rules, others + (realYield to series(List(1279) { 2.0 + it % 5 * 0.1 })), end))
-        assertNull(calculator.assess(rules, others + (realYield to series(List(1278) { 2.0 + it % 5 * 0.1 })), end))
+        assertNotNull(calc(rules, others + (realYield to series(List(1279) { 2.0 + it % 5 * 0.1 })), end))
+        assertNull(calc(rules, others + (realYield to series(List(1278) { 2.0 + it % 5 * 0.1 })), end))
     }
 
     // R-78
@@ -166,8 +173,8 @@ class ValuationCalculatorTest {
     @Test
     fun `R-78 10년물의 값이 모두 기준 날짜 뒤면 null, 기준금리도 같다`() {
         val later = listOf(DailyValue(date("2026-11-24"), 4.0), DailyValue(date("2026-11-25"), 4.1))
-        assertNull(calculator.assess(small, base() + (treasury to later), end))
-        assertNull(calculator.assess(small, base() + (policy to later), end))
+        assertNull(calc(small, base() + (treasury to later), end))
+        assertNull(calc(small, base() + (policy to later), end))
     }
 
     @Test
@@ -201,7 +208,7 @@ class ValuationCalculatorTest {
     fun `R-79 실질금리가 365일 앞보다 뒤부터만 있으면 null`() {
         val rules = small.copy(yearAgoDays = 365)
         val yields = MoodTestData.weekdays(date("2025-11-24"), end).map { DailyValue(it, 2.0) }
-        assertNull(calculator.assess(rules, base() + (realYield to yields), end))
+        assertNull(calc(rules, base() + (realYield to yields), end))
     }
 
     // R-80
@@ -222,7 +229,7 @@ class ValuationCalculatorTest {
     @Test
     fun `R-80 12달 전 값이 있는 달이 없으면 null`() {
         val prices = (0 until 12).map { DailyValue(YearMonth.of(2025, 11).plusMonths(it.toLong()).atDay(1), 300.0 + it) }
-        assertNull(calculator.assess(small, base() + (cpi to prices), end))
+        assertNull(calc(small, base() + (cpi to prices), end))
     }
 
     @Test
@@ -376,13 +383,15 @@ class ValuationCalculatorTest {
     @Test
     fun `R-40 데이터 A에서 시리즈 하나를 빼면 null`() {
         listOf(realYield, treasury, policy, cpi, spy).forEach { id ->
-            assertNull(id, calculator.assess(MoodTestData.RULES.valuation, dataA().removeSeries(id).build(), end))
+            assertNull(id, calc(MoodTestData.RULES.valuation, dataA().removeSeries(id).build(), end))
         }
     }
 
     companion object {
         // 다른 테스트가 데이터 A의 매매 판단과 견줄 때 쓴다.
         fun dataAValuation(): ValuationAssessment =
-            requireNotNull(ValuationCalculator().assess(MoodTestData.RULES.valuation, dataA().build(), MoodTestData.END))
+            dataA().build().let { values ->
+                requireNotNull(ValuationCalculator().assess(MoodTestData.RULES.valuation, values["SPY"], values, MoodTestData.END))
+            }
     }
 }

@@ -30,7 +30,7 @@ class RefreshMarketDataUseCaseTest {
     private val repository = FakeMarketDataRepository()
     private val rulesRepository = FakeMoodRulesRepository()
     private val clock = FakeClock(Instant.parse("2026-11-24T01:00:00Z"))
-    private val useCase = RefreshMarketDataUseCase(repository, rulesRepository, MoodCalculator(ValuationCalculator()), clock)
+    private val useCase = RefreshMarketDataUseCase(repository, rulesRepository, MoodCalculator(RegimeCalculator(), ValuationCalculator()), clock)
 
     // FRED 시리즈 여섯: 장세 항목 둘과 매매 판단의 넷
     private val fredIds = listOf(YIELD_CURVE, HIGH_YIELD) + MoodTestData.VALUATION_SERIES
@@ -53,13 +53,13 @@ class RefreshMarketDataUseCaseTest {
     @Test
     fun `R-23 받아 둔 값이 바뀌면 판정을 다시 계산해 내보낸다`() = runTest {
         repository.setStored(dataA(), null)
-        val observe = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))
+        val observe = ObserveMoodUseCase(rulesRepository, repository, MoodCalculator(RegimeCalculator(), ValuationCalculator()), UnconfinedTestDispatcher(testScheduler))
         val received = mutableListOf<MoodAssessment?>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { observe().toList(received) }
 
         repository.setStored(dataB(), null)
 
-        assertEquals(listOf(1.0, 0.4125), received.map { it!!.compositeScore })
+        assertEquals(listOf(0.766667, 0.15), received.map { it!!.compositeScore })
     }
 
     // R-41
@@ -73,9 +73,9 @@ class RefreshMarketDataUseCaseTest {
         assertEquals(
             mapOf(
                 "SPY" to date("2017-11-23"),
-                "QQQ" to date("2024-11-23"),
-                "XLK" to date("2024-11-23"),
-                "SMH" to date("2024-11-23"),
+                "QQQ" to date("2017-11-23"),
+                "SMH" to date("2017-11-23"),
+                "XLK" to date("2017-11-23"),
             ),
             calls[0].requests.toMap(),
         )
@@ -186,7 +186,7 @@ class RefreshMarketDataUseCaseTest {
 
     @Test
     fun `R-42 모두 성공했는데 판정을 낼 수 없으면 OTHER이고 성공한 때 없이 저장한다`() = runTest {
-        repository.remote = dataA().keepOnly("XLK") { it == date("2026-11-23") }
+        repository.remote = dataA().removeSeries("DFII10")
 
         val outcome = useCase()
 

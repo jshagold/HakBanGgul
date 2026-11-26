@@ -776,7 +776,7 @@ private fun stageText(stage: MarketStage) = UiText(
 private fun previewIndicator(name: Int, suffix: Int?, evidence: UiText, score: String, tone: ScoreTone) =
     IndicatorUiState(UiText(name), suffix?.let { UiText(it) }, evidence, score, tone)
 
-private fun price(above: String, drawdown: String) = UiText(R.string.evidence_price, listOf(above, drawdown))
+private fun ratio(text: String) = UiText(R.string.evidence_value, listOf(text))
 
 private fun previewMood(
     stage: MarketStage,
@@ -807,10 +807,9 @@ private fun previewMood(
             scoreText = stockScore,
             scoreTone = stockTone,
             indicators = listOf(
-                previewIndicator(R.string.indicator_broad_market, R.string.indicator_broad_market_suffix, price("+4.1%", "-3.2%"), "+1.0", ScoreTone.POSITIVE),
-                previewIndicator(R.string.indicator_nasdaq_100, R.string.indicator_nasdaq_100_suffix, price("+3.0%", "-6.5%"), "+1.0", ScoreTone.POSITIVE),
-                previewIndicator(R.string.indicator_technology, R.string.indicator_technology_suffix, price("+1.2%", "-11.8%"), "0.0", ScoreTone.ZERO),
-                previewIndicator(R.string.indicator_semiconductors, R.string.indicator_semiconductors_suffix, price("-2.4%", "-17.5%"), "-0.5", ScoreTone.NEGATIVE),
+                previewIndicator(R.string.indicator_above_average, null, ratio("+4.1%"), "+1.0", ScoreTone.POSITIVE),
+                previewIndicator(R.string.indicator_from_high, null, ratio("-3.2%"), "+1.0", ScoreTone.POSITIVE),
+                previewIndicator(R.string.indicator_average_slope, null, ratio("-0.4%"), "-1.0", ScoreTone.NEGATIVE),
             ),
         ),
         GroupUiState(

@@ -16,8 +16,15 @@ class ObserveSourceKeysUseCaseTest {
     @Test
     fun `R-15 장세 항목이 모두 TWELVE_DATA여도 매매 판단의 FRED 시리즈가 있으면 두 출처가 순서대로 나온다`() = runTest {
         val base = DefaultMoodRules.rules
-        // 장세의 항목에서 FRED 묶음을 빼 TWELVE_DATA 시리즈만 남긴다.
-        val rules = base.copy(groups = base.groups.filter { group -> group.indicators.all { it.series.source == TWELVE_DATA } })
+        // 장세의 항목에서 FRED 시리즈를 쓰는 묶음을 빼 대상의 종가(TWELVE_DATA)만 남긴다.
+        val rules = base.copy(
+            regime = base.regime.copy(
+                groups = base.regime.groups.filter { group ->
+                    group.indicators.all { (it.input as? IndicatorInput.Series)?.series?.source != FRED }
+                },
+            ),
+        )
+        assertEquals(listOf("stocks"), rules.regime.groups.map { it.id })
         val useCase = ObserveSourceKeysUseCase(
             FakeMoodRulesRepository(rules),
             FakeApiKeyProvider(mapOf(TWELVE_DATA to AVAILABLE, FRED to AVAILABLE)),

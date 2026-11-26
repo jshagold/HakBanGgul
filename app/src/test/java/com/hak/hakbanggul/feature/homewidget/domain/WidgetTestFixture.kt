@@ -14,11 +14,13 @@ import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.MoodRules
 import com.hak.hakbanggul.feature.marketmood.domain.MoodRulesRepository
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.withMainWindow
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveRefreshStateUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshMarketDataUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RequestRefreshUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.RegimeCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import kotlinx.coroutines.CompletableDeferred
@@ -44,7 +46,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
     val rulesRepository = FakeMoodRulesRepository()
     val clock = FakeClock(now)
     val keys = FakeApiKeyProvider()
-    private val calculator = MoodCalculator(ValuationCalculator())
+    private val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
 
     // 받기 관리자가 쓰는 저장소. 시작한 때를 읽다 예외가 나게 할 때 바꾼다.
     var refresherRepository: MarketDataRepository = repository
@@ -119,10 +121,10 @@ class WidgetTestFixture(private val testScope: TestScope) {
             MIDDLE_50,
         )
 
-        // 완충 규칙: 시험용 규칙에서 매매 판단의 위치 기간만 101, 평균 일수만 1로 바꾼 것
-        val BUFFER_RULES: MoodRules = MoodTestData.RULES.copy(
-            valuation = MoodTestData.RULES.valuation.copy(positionWindow = 101, smoothingDays = 1),
-        )
+        // 완충 규칙: 시험용 규칙에서 매매 판단의 메인 기간(2y)의 위치 기간만 101, 평균 일수만 1로 바꾼 것
+        val BUFFER_RULES: MoodRules = MoodTestData.RULES.withMainWindow(101).let {
+            it.copy(valuation = it.valuation.copy(smoothingDays = 1))
+        }
 
         // 완충 데이터: 데이터 A에서 실질금리의 마지막 102개 평일(2026-11-23으로 끝남) 값만 점수열 30, 35가 나오는 값으로 덮은 것.
         // 그 앞의 날은 2.00 그대로 둔다(1년 전 값이 있어야 금리 부담이 나온다).

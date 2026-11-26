@@ -39,10 +39,10 @@ data class IndicatorAssessment(
 // 항목 점수의 근거
 sealed interface IndicatorEvidence {
 
-    // aboveAverageRatio: (종가 - 평균) ÷ 평균. drawdown: 최근 1년 최고 종가에서의 낙폭(0 이하)
-    data class PriceEvidence(
-        val aboveAverageRatio: Double,
-        val drawdown: Double,
+    // 주식 항목의 비율 하나: 평균 대비는 평균 괴리, 고점 대비는 고점 대비 낙폭(0 이하), 평균의 기울기는 기울기.
+    // 반올림 전의 값이다.
+    data class RatioEvidence(
+        val ratio: Double,
     ) : IndicatorEvidence
 
     // 그날이나 그 전의 가장 가까운 날의 값과 그 날짜

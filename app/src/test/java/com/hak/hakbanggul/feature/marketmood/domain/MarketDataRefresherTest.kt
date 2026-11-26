@@ -44,7 +44,7 @@ class MarketDataRefresherTest {
     private val keys = FakeApiKeyProvider()
 
     private fun TestScope.newRefresher(): MarketDataRefresher {
-        val calculator = MoodCalculator(ValuationCalculator())
+        val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
         val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock)
@@ -77,7 +77,7 @@ class MarketDataRefresherTest {
 
     @Test
     fun `R-20 판정을 낼 수 없으면 1시간 전에 받았어도 받는다`() = runTest {
-        assertTrue(shownWith(dataA().removeSeries("XLK"), now.minus(Duration.ofHours(1))))
+        assertTrue(shownWith(dataA().removeSeries("SPY"), now.minus(Duration.ofHours(1))))
     }
 
     @Test

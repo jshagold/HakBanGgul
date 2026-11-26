@@ -1,23 +1,25 @@
 package com.hak.hakbanggul.feature.marketmood.domain
 
-import com.hak.hakbanggul.core.model.DataSource
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.HIGH_YIELD
-import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.STOCKS
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.YIELD_CURVE
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataB
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.date
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.withRegimeWeights
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
-import java.time.DayOfWeek
 
 class MoodCalculatorTest {
 
-    private val calculator = MoodCalculator(ValuationCalculator())
+    private val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
     private val rules = MoodTestData.RULES
 
-    private fun assess(builder: MoodTestData.Builder): MoodAssessment =
+    // 시험용 규칙에서 비중만 주식 0.75, 채권 신호 0.25로 바꾼 규칙
+    private val weighted = rules.withRegimeWeights(0.75, 0.25)
+
+    private fun assess(builder: MoodTestData.Builder, rules: MoodRules = this.rules): MoodAssessment =
         requireNotNull(calculator.assess(rules, builder.build())) { "판정을 낼 수 있어야 한다" }
 
     private fun MoodAssessment.indicator(id: String): IndicatorAssessment =
@@ -25,55 +27,11 @@ class MoodCalculatorTest {
 
     private fun MoodAssessment.group(id: String): GroupAssessment = groups.single { it.id == id }
 
-    private fun MoodAssessment.price(id: String) = indicator(id).evidence as IndicatorEvidence.PriceEvidence
+    private fun MoodAssessment.ratio(id: String) = (indicator(id).evidence as IndicatorEvidence.RatioEvidence).ratio
 
     private fun MoodAssessment.value(id: String) = indicator(id).evidence as IndicatorEvidence.ValueEvidence
 
     private fun score(builder: MoodTestData.Builder, id: String): Double = assess(builder).indicator(id).score
-
-    // R-30
-
-    @Test
-    fun `R-30 기본 규칙의 묶음, 항목, 시리즈, 점수 기준, 비중, 경계, 유지 일수`() {
-        val rules = DefaultMoodRules.rules
-        val trend = ScoringRule.PriceTrend(200, 0.10, 0.20)
-        fun stock(id: String, ticker: String) =
-            IndicatorRule(id, IndicatorSeries(DataSource.TWELVE_DATA, ticker, SeriesKind.DAILY_CLOSE), trend)
-
-        val expected = listOf(
-            IndicatorGroupRule(
-                "stocks",
-                0.7,
-                listOf(
-                    stock("broad_market", "SPY"),
-                    stock("nasdaq_100", "QQQ"),
-                    stock("technology", "XLK"),
-                    stock("semiconductors", "SMH"),
-                ),
-            ),
-            IndicatorGroupRule(
-                "bond_signals",
-                0.3,
-                listOf(
-                    IndicatorRule(
-                        "yield_curve",
-                        IndicatorSeries(DataSource.FRED, "T10Y2Y", SeriesKind.DAILY_VALUE),
-                        ScoringRule.HighIsGood(0.0, 0.5),
-                    ),
-                    IndicatorRule(
-                        "high_yield_spread",
-                        IndicatorSeries(DataSource.FRED, "BAMLH0A0HYM2", SeriesKind.DAILY_VALUE),
-                        ScoringRule.LowIsGood(4.0, 6.0),
-                    ),
-                ),
-            ),
-        )
-        assertEquals(expected, rules.groups)
-        assertEquals(1.0, rules.groups.sumOf { it.weight }, 1e-9)
-        assertEquals(0.5, rules.upperBoundary, 0.0)
-        assertEquals(-0.5, rules.lowerBoundary, 0.0)
-        assertEquals(3, rules.holdDays)
-    }
 
     // R-38, R-37
 
@@ -83,73 +41,78 @@ class MoodCalculatorTest {
     }
 
     @Test
-    fun `R-37 QQQ의 2026-11-23이 없으면 기준 날짜는 2026-11-20`() {
-        assertEquals(date("2026-11-20"), assess(dataA().remove("QQQ", "2026-11-23")).asOfDate)
-    }
-
-    // R-31
-
-    @Test
-    fun `R-31 종가가 평균과 같으면 평균 이상이라 broad_market은 +1`() {
-        assertEquals(1.0, score(dataA(), "broad_market"), 0.0)
+    fun `R-37 SPY의 2026-11-23이 없으면 기준 날짜는 2026-11-20`() {
+        val result = assess(dataA().remove("SPY", "2026-11-23"))
+        assertEquals(date("2026-11-20"), result.asOfDate)
+        assertEquals(0.766667, result.compositeScore, 0.0)
+        assertEquals(MarketStage.BULL, result.displayedStage)
     }
 
     @Test
-    fun `R-31 SPY 2026-11-23이 99_9면 추세 -1 낙폭 +1로 0`() {
-        assertEquals(0.0, score(dataA().set("SPY", "2026-11-23", 99.9), "broad_market"), 0.0)
+    fun `R-37 QQQ의 2026-11-23이 없어도 기준 날짜는 2026-11-23`() {
+        assertEquals(date("2026-11-23"), assess(dataA().remove("QQQ", "2026-11-23")).asOfDate)
+    }
+
+    // R-101 평균 대비
+
+    @Test
+    fun `R-101 데이터 A면 평균 대비 0점, 근거 0`() {
+        val result = assess(dataA())
+        assertEquals(0.0, result.indicator("above_average").score, 0.0)
+        assertEquals(0.0, result.ratio("above_average"), 1e-12)
     }
 
     @Test
-    fun `R-31 평균은 그날을 포함한 최근 200개 종가`() {
-        val builder = dataA()
-        MoodTestData.weekdays(MoodTestData.START, date("2026-02-16")).forEach { builder.set("SPY", it, 50.0) }
-
-        val result = assess(builder)
-
-        assertEquals(0.0, result.price("broad_market").aboveAverageRatio, 1e-12)
-        assertEquals(1.0, result.indicator("broad_market").score, 0.0)
-    }
-
-    // R-32
-
-    @Test
-    fun `R-32 하락률 10%는 얕은 기준 이하라 낙폭 +1, 추세 -1로 0`() {
-        assertEquals(0.0, score(dataA().set("SPY", "2026-11-23", 90.0), "broad_market"), 0.0)
+    fun `R-101 SPY 2026-11-23이 104_1이면 평균 대비 +1`() {
+        val result = assess(dataA().set("SPY", "2026-11-23", 104.1))
+        assertEquals(1.0, result.indicator("above_average").score, 0.0)
+        assertEquals(0.040147, result.ratio("above_average"), 1e-6)
     }
 
     @Test
-    fun `R-32 89_9면 -0_5`() {
-        assertEquals(-0.5, score(dataA().set("SPY", "2026-11-23", 89.9), "broad_market"), 0.0)
+    fun `R-101 SPY 2026-11-23이 99면 평균 대비 0`() {
+        val result = assess(dataA().set("SPY", "2026-11-23", 99.0))
+        assertEquals(0.0, result.indicator("above_average").score, 0.0)
+        assertEquals(-0.009802, result.ratio("above_average"), 1e-6)
+    }
+
+    // R-101 고점 대비
+
+    @Test
+    fun `R-101 SPY 2026-11-23이 95면 고점 대비 +1`() {
+        assertEquals(1.0, score(dataA().set("SPY", "2026-11-23", 95.0), "from_high"), 0.0)
     }
 
     @Test
-    fun `R-32 하락률 20%는 깊은 기준 이상이라 -1`() {
-        assertEquals(-1.0, score(dataA().set("SPY", "2026-11-23", 80.0), "broad_market"), 0.0)
+    fun `R-101 93이면 고점 대비 0, 근거 -0_07`() {
+        val result = assess(dataA().set("SPY", "2026-11-23", 93.0))
+        assertEquals(0.0, result.indicator("from_high").score, 0.0)
+        assertEquals(-0.07, result.ratio("from_high"), 1e-12)
     }
 
     @Test
-    fun `R-32 80_1이면 -0_5`() {
-        assertEquals(-0.5, score(dataA().set("SPY", "2026-11-23", 80.1), "broad_market"), 0.0)
+    fun `R-101 90이면 고점 대비 -1`() {
+        assertEquals(-1.0, score(dataA().set("SPY", "2026-11-23", 90.0), "from_high"), 0.0)
     }
 
     @Test
-    fun `R-32 1년 전 같은 날은 최고 종가에 들어간다`() {
-        val builder = dataA().truncateAllAfter("2026-11-20").set("SPY", "2025-11-20", 200.0)
-        assertEquals(-0.5, assess(builder).price("broad_market").drawdown, 1e-12)
+    fun `R-101 80이면 고점 대비 -1, 근거 -0_2`() {
+        val result = assess(dataA().set("SPY", "2026-11-23", 80.0))
+        assertEquals(-1.0, result.indicator("from_high").score, 0.0)
+        assertEquals(-0.2, result.ratio("from_high"), 1e-12)
     }
 
     @Test
-    fun `R-32 1년보다 앞의 날은 최고 종가에 들어가지 않는다`() {
-        val builder = dataA().truncateAllAfter("2026-11-20").set("SPY", "2025-11-19", 200.0)
-        assertEquals(0.0, assess(builder).price("broad_market").drawdown, 1e-12)
+    fun `R-101 고점은 그날을 포함한 최근 63거래일`() {
+        // 2026-08-27은 2026-11-23을 포함해 63번째 평일이다.
+        assertEquals(date("2026-08-27"), MoodTestData.weekdaysEndingAt(date("2026-11-23"), 63).first())
+        val inside = assess(dataA().set("SPY", "2026-08-27", 120.0))
+        assertEquals(-0.166667, inside.ratio("from_high"), 1e-6)
+        val outside = assess(dataA().set("SPY", "2026-08-17", 120.0))
+        assertEquals(0.0, outside.ratio("from_high"), 1e-12)
     }
 
     // R-33
-
-    @Test
-    fun `R-33 데이터 B의 technology는 추세 +1 낙폭 0으로 +0_5`() {
-        assertEquals(0.5, score(dataB(), "technology"), 0.0)
-    }
 
     @Test
     fun `R-33 yield_curve 점수 경계`() {
@@ -172,29 +135,31 @@ class MoodCalculatorTest {
     @Test
     fun `R-34 데이터 B의 묶음 점수와 현재 상태`() {
         val result = assess(dataB())
-        assertEquals(0.375, result.group("stocks").score, 1e-12)
+        assertEquals(0.0, result.group("stocks").score, 1e-12)
         assertEquals(0.5, result.group("bond_signals").score, 1e-12)
-        assertEquals(0.4125, result.compositeScore, 1e-12)
+        assertEquals(0.15, result.compositeScore, 0.0)
     }
 
     // R-35
 
     @Test
     fun `R-35 경계에 꼭 걸린 0_5는 불장`() {
-        val result = assess(dataA().setStocks("2026-01-05", 120.0).set(YIELD_CURVE, "2026-11-23", 0.29))
+        val result = assess(dataA().set(YIELD_CURVE, "2026-11-23", 0.29).set(HIGH_YIELD, "2026-11-23", 5.00), weighted)
         assertEquals(0.5, result.compositeScore, 0.0)
         assertEquals(MarketStage.BULL, result.computedStage)
     }
 
     @Test
     fun `R-35 데이터 B는 중립`() {
-        assertEquals(MarketStage.NEUTRAL, assess(dataB()).computedStage)
+        val result = assess(dataB())
+        assertEquals(0.15, result.compositeScore, 0.0)
+        assertEquals(MarketStage.NEUTRAL, result.computedStage)
     }
 
     @Test
     fun `R-35 현재 상태 0은 중립`() {
         val result = assess(
-            dataA().setStocks("2026-11-23", 99.9).set(YIELD_CURVE, "2026-11-23", 0.29).set(HIGH_YIELD, "2026-11-23", 5.00),
+            dataA().set("SPY", "2026-11-23", 99.0).set(YIELD_CURVE, "2026-11-23", 0.29).set(HIGH_YIELD, "2026-11-23", 5.00),
         )
         assertEquals(0.0, result.compositeScore, 0.0)
         assertEquals(MarketStage.NEUTRAL, result.computedStage)
@@ -203,8 +168,10 @@ class MoodCalculatorTest {
     @Test
     fun `R-35 현재 상태 -0_5는 약세`() {
         val result = assess(
-            dataA().setStocks("2026-11-23", 89.9).set(YIELD_CURVE, "2026-11-23", -0.01).set(HIGH_YIELD, "2026-11-23", 5.00),
+            dataA().set("SPY", "2026-11-23", 93.0).set(YIELD_CURVE, "2026-11-23", 0.29).set(HIGH_YIELD, "2026-11-23", 5.00),
+            weighted,
         )
+        assertEquals(-0.666667, result.group("stocks").score, 1e-6)
         assertEquals(-0.5, result.compositeScore, 0.0)
         assertEquals(MarketStage.WEAK, result.computedStage)
     }
@@ -212,7 +179,7 @@ class MoodCalculatorTest {
     @Test
     fun `R-35 현재 상태 -0_85는 물장`() {
         val result = assess(
-            dataA().setStocks("2026-11-23", 80.0).set(YIELD_CURVE, "2026-11-23", -0.01).set(HIGH_YIELD, "2026-11-23", 5.00),
+            dataA().set("SPY", "2026-11-23", 80.0).set(YIELD_CURVE, "2026-11-23", -0.01).set(HIGH_YIELD, "2026-11-23", 5.00),
         )
         assertEquals(-0.85, result.compositeScore, 0.0)
         assertEquals(MarketStage.BEAR, result.computedStage)
@@ -225,6 +192,7 @@ class MoodCalculatorTest {
         val result = assess(dataA().badDay("2026-11-20", "2026-11-23"))
         assertEquals(MarketStage.BULL, result.displayedStage)
         assertEquals(MarketStage.NEUTRAL, result.computedStage)
+        assertEquals(0.166667, result.compositeScore, 0.0)
     }
 
     @Test
@@ -241,18 +209,26 @@ class MoodCalculatorTest {
 
     @Test
     fun `R-36 다른 단계가 끼면 연속이 끊긴다`() {
-        val result = assess(
-            dataA().badDay("2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23").setStocks("2026-11-20", 80.0),
+        val builder = dataA().badDay("2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23").set("SPY", "2026-11-20", 80.0)
+        assertEquals(
+            MarketStage.BEAR,
+            assess(dataA().badDay("2026-11-18", "2026-11-19", "2026-11-20").set("SPY", "2026-11-20", 80.0).truncateAllAfter("2026-11-20"))
+                .computedStage,
         )
+        val result = assess(builder)
+        assertEquals(-0.3, result.compositeScore, 0.0)
+        assertEquals(MarketStage.WEAK, result.computedStage)
         assertEquals(MarketStage.BULL, result.displayedStage)
-        assertEquals(MarketStage.NEUTRAL, result.computedStage)
     }
 
     @Test
     fun `R-36 첫 거래일의 계산 단계가 표시 단계가 된다`() {
-        val result = assess(dataA().truncateAllAfter("2025-11-26").badDay("2025-11-25"))
+        val keep = MoodTestData.weekdaysEndingAt(MoodTestData.END, 72).toSet()
+        assertEquals(date("2026-08-14"), keep.min())
+        val result = assess(dataA().keepOnly("SPY") { it in keep }.badDay("2026-11-19"))
         assertEquals(MarketStage.NEUTRAL, result.displayedStage)
         assertEquals(MarketStage.BULL, result.computedStage)
+        assertEquals(2, result.computedStageStreak)
     }
 
     @Test
@@ -283,7 +259,7 @@ class MoodCalculatorTest {
     @Test
     fun `R-08 다른 단계가 끼면 이어진 거래일 수가 다시 1`() {
         val result = assess(
-            dataA().badDay("2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23").setStocks("2026-11-20", 80.0),
+            dataA().badDay("2026-11-18", "2026-11-19", "2026-11-20", "2026-11-23").set("SPY", "2026-11-20", 80.0),
         )
         assertEquals(1, result.computedStageStreak)
     }
@@ -291,19 +267,20 @@ class MoodCalculatorTest {
     // R-11
 
     @Test
-    fun `R-11 SPY 2026-11-23이 104_1일 때의 두 값`() {
-        val evidence = assess(dataA().set("SPY", "2026-11-23", 104.1)).price("broad_market")
-        assertEquals((104.1 - 100.0205) / 100.0205, evidence.aboveAverageRatio, 1e-12)
-        assertEquals(0.0, evidence.drawdown, 1e-12)
+    fun `R-11 SPY 2026-11-23이 104_1일 때의 세 값`() {
+        val result = assess(dataA().set("SPY", "2026-11-23", 104.1))
+        assertEquals(0.040147, result.ratio("above_average"), 1e-6)
+        assertEquals(0.0, result.ratio("from_high"), 1e-12)
+        assertEquals(0.00082, result.ratio("average_slope"), 1e-9)
     }
 
     @Test
-    fun `R-11 데이터 B의 technology와 semiconductors의 두 값`() {
+    fun `R-11 데이터 B의 SPY의 세 값`() {
         val result = assess(dataB())
-        assertEquals(0.0, result.price("technology").aboveAverageRatio, 1e-12)
-        assertEquals((100.0 - 120.0) / 120.0, result.price("technology").drawdown, 1e-12)
-        assertEquals((80.0 - 99.9) / 99.9, result.price("semiconductors").aboveAverageRatio, 1e-12)
-        assertEquals(-0.2, result.price("semiconductors").drawdown, 1e-12)
+        assertEquals(99.0 / 99.98 - 1, result.ratio("above_average"), 1e-12)
+        assertEquals(-0.009802, result.ratio("above_average"), 1e-6)
+        assertEquals(-0.01, result.ratio("from_high"), 1e-12)
+        assertEquals(-0.0002, result.ratio("average_slope"), 1e-12)
     }
 
     // R-39, R-12
@@ -326,8 +303,13 @@ class MoodCalculatorTest {
     // R-40
 
     @Test
-    fun `R-40 XLK 시리즈가 없으면 null`() {
-        assertNull(calculator.assess(rules, dataA().removeSeries("XLK").build()))
+    fun `R-40 XLK가 없어도 판정이 있다`() {
+        assertNotNull(calculator.assess(rules, dataA().removeSeries("XLK").build()))
+    }
+
+    @Test
+    fun `R-40 SPY가 없으면 null`() {
+        assertNull(calculator.assess(rules, dataA().removeSeries("SPY").build()))
     }
 
     @Test
@@ -336,19 +318,23 @@ class MoodCalculatorTest {
     }
 
     @Test
-    fun `R-40 종가가 200개에 못 미치면 null`() {
-        val builder = dataA()
-        STOCKS.forEach { id -> builder.keepOnly(id) { it.dayOfWeek == DayOfWeek.MONDAY } }
-        assertNull(calculator.assess(rules, builder.build()))
+    fun `R-40 SPY 마지막 70평일이면 판정이 있고 69평일이면 null`() {
+        val keep70 = MoodTestData.weekdaysEndingAt(MoodTestData.END, 70).toSet()
+        val keep69 = MoodTestData.weekdaysEndingAt(MoodTestData.END, 69).toSet()
+        assertNotNull(calculator.assess(rules, dataA().keepOnly("SPY") { it in keep70 }.build()))
+        assertNull(calculator.assess(rules, dataA().keepOnly("SPY") { it in keep69 }.build()))
     }
 
     // R-40 매매 판단이 없으면 판정도 없음
 
     @Test
-    fun `R-40 데이터 A면 판정이 있고 장세는 전과 같으며 매매 판단이 실린다`() {
+    fun `R-40 데이터 A면 판정이 있고 매매 판단이 실린다`() {
         val result = assess(dataA())
-        assertEquals(1.0, result.compositeScore, 0.0)
+        assertEquals(0.766667, result.compositeScore, 0.0)
         assertEquals(MarketStage.BULL, result.displayedStage)
+        assertEquals(MarketStage.BULL, result.computedStage)
+        assertEquals(0.666667, result.group("stocks").score, 1e-6)
+        assertEquals(1.0, result.group("bond_signals").score, 0.0)
         assertEquals(ValuationCalculatorTest.dataAValuation(), result.valuation)
         assertEquals(50, result.valuation.pricePosition.score)
         assertEquals(50, result.valuation.rateBurden.score)

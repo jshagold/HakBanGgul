@@ -265,10 +265,7 @@ class MarketMoodViewModel @Inject constructor(
 
     private fun evidence(evidence: IndicatorEvidence, format: IndicatorLabels.ValueFormat?, asOfDate: LocalDate): UiText =
         when (evidence) {
-            is IndicatorEvidence.PriceEvidence -> UiText(
-                R.string.evidence_price,
-                listOf(formatter.signedPercent(evidence.aboveAverageRatio), formatter.signedPercent(evidence.drawdown)),
-            )
+            is IndicatorEvidence.RatioEvidence -> UiText(R.string.evidence_value, listOf(formatter.signedPercent(evidence.ratio)))
             is IndicatorEvidence.ValueEvidence -> {
                 val valueText = when (format) {
                     IndicatorLabels.ValueFormat.SIGNED_PERCENT_POINT -> formatter.signedPercentPoint(evidence.value)

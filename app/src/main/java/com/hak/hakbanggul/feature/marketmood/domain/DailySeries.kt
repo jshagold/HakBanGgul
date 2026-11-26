@@ -15,6 +15,20 @@ class DailySeries private constructor(
         return if (found >= 0) found else -(found + 1) - 1
     }
 
+    // 그 위치를 포함한 최근 count개 값의 평균. 부르는 쪽이 count개가 있는지 먼저 본다.
+    fun averageAt(index: Int, count: Int): Double {
+        var sum = 0.0
+        for (i in index - count + 1..index) sum += values[i]
+        return sum / count
+    }
+
+    // 그 위치를 포함한 최근 count개 값의 최고. 부르는 쪽이 count개가 있는지 먼저 본다.
+    fun highAt(index: Int, count: Int): Double {
+        var high = values[index]
+        for (i in index - count + 1..index) if (values[i] > high) high = values[i]
+        return high
+    }
+
     // 그날의 종가와 최근 1년 최고 종가로 낸 낙폭(0 이하).
     // 최근 1년 최고 종가: 그날로부터 1년 전의 같은 날부터 그날까지(두 날 포함)의 종가 가운데 가장 높은 값
     fun drawdownAt(index: Int): Double {

@@ -10,11 +10,18 @@ import javax.inject.Inject
 // 매매 판단을 내는 순수 계산기. 지금 시각을 쓰지 않아 같은 값과 기준 날짜면 늘 같은 매매 판단이 난다.
 class ValuationCalculator @Inject constructor() {
 
-    // values의 키는 시리즈 ID다. 주가 위치, 금리 부담, 10년물, 기준금리, 물가 상승률 가운데 하나라도 낼 수 없으면 null이다.
-    fun assess(rules: ValuationRules, values: Map<String, List<DailyValue>>, asOfDate: LocalDate): ValuationAssessment? {
-        if (rules.positionWindow < 2 || rules.smoothingDays < 1) return null
-        val pricePosition = assessPricePosition(rules, values[rules.priceSeries.seriesId], asOfDate) ?: return null
-        val rateBurden = assessRateBurden(rules, values, asOfDate) ?: return null
+    // 메인 기간의 매매 판단. closes는 대상의 종가, values의 키는 시리즈 ID다.
+    // 주가 위치, 금리 부담, 10년물, 기준금리, 물가 상승률 가운데 하나라도 낼 수 없으면 null이다.
+    fun assess(
+        rules: ValuationRules,
+        closes: List<DailyValue>?,
+        values: Map<String, List<DailyValue>>,
+        asOfDate: LocalDate,
+    ): ValuationAssessment? {
+        val window = rules.mainPeriod().positionWindow
+        if (window < 2 || rules.smoothingDays < 1) return null
+        val pricePosition = assessPricePosition(rules, window, closes, asOfDate) ?: return null
+        val rateBurden = assessRateBurden(rules, window, values, asOfDate) ?: return null
         return ValuationAssessment(
             pricePosition = pricePosition,
             rateBurden = rateBurden,
@@ -25,8 +32,8 @@ class ValuationCalculator @Inject constructor() {
         )
     }
 
-    // 주가 위치. 주가 위치의 날은 대상 시리즈의 값이 있는 날이다(장세의 거래일과 상관없다).
-    private fun assessPricePosition(rules: ValuationRules, list: List<DailyValue>?, asOfDate: LocalDate): PricePositionAssessment? {
+    // 주가 위치. 주가 위치의 날은 대상의 종가가 있는 날이다.
+    private fun assessPricePosition(rules: ValuationRules, window: Int, list: List<DailyValue>?, asOfDate: LocalDate): PricePositionAssessment? {
         if (list.isNullOrEmpty()) return null
         val series = DailySeries.of(list)
         val asOfIndex = series.dates.binarySearch(asOfDate)
@@ -36,8 +43,8 @@ class ValuationCalculator @Inject constructor() {
 
         val shortDeviations = deviations(closes, rules.shortAverageDays)
         val longDeviations = deviations(closes, rules.longAverageDays)
-        val shortPositions = positions(shortDeviations, rules.positionWindow)
-        val longPositions = positions(longDeviations, rules.positionWindow)
+        val shortPositions = positions(shortDeviations, window)
+        val longPositions = positions(longDeviations, window)
         val weightSum = rules.shortWeight + rules.longWeight
         val pricePositions = DoubleArray(closes.size) { i ->
             val s = shortPositions[i]
@@ -64,13 +71,13 @@ class ValuationCalculator @Inject constructor() {
     }
 
     // 금리 부담. 금리 부담의 날은 실질금리의 값이 있는 날이다.
-    private fun assessRateBurden(rules: ValuationRules, values: Map<String, List<DailyValue>>, asOfDate: LocalDate): RateBurdenAssessment? {
+    private fun assessRateBurden(rules: ValuationRules, window: Int, values: Map<String, List<DailyValue>>, asOfDate: LocalDate): RateBurdenAssessment? {
         val realYield = seriesOf(values, rules.realYieldSeries) ?: return null
         val realYieldIndex = realYield.floorIndex(asOfDate)
         if (realYieldIndex < 0) return null
         // 실질금리의 날 뒤의 값은 쓰지 않는다.
         val yields = realYield.values.copyOf(realYieldIndex + 1)
-        val scores = scores(positions(yields, rules.positionWindow), rules.smoothingDays)
+        val scores = scores(positions(yields, window), rules.smoothingDays)
         val score = scores[realYieldIndex] ?: return null
         val stages = stagesOf(scores.filterNotNull(), rules)
 

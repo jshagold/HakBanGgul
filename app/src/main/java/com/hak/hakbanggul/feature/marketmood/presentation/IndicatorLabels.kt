@@ -29,10 +29,9 @@ object IndicatorLabels {
     )
 
     private val indicators = mapOf(
-        "broad_market" to Label(R.string.indicator_broad_market, R.string.indicator_broad_market_suffix),
-        "nasdaq_100" to Label(R.string.indicator_nasdaq_100, R.string.indicator_nasdaq_100_suffix),
-        "technology" to Label(R.string.indicator_technology, R.string.indicator_technology_suffix),
-        "semiconductors" to Label(R.string.indicator_semiconductors, R.string.indicator_semiconductors_suffix),
+        "above_average" to Label(R.string.indicator_above_average),
+        "from_high" to Label(R.string.indicator_from_high),
+        "average_slope" to Label(R.string.indicator_average_slope),
         "yield_curve" to Label(
             R.string.indicator_yield_curve,
             R.string.indicator_yield_curve_suffix,
