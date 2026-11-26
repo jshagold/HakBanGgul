@@ -6,6 +6,7 @@ import com.hak.hakbanggul.feature.marketmood.data.FredObservationsApi
 import com.hak.hakbanggul.feature.marketmood.data.MarketDataRepositoryImpl
 import com.hak.hakbanggul.feature.marketmood.data.MoodRulesRepositoryImpl
 import com.hak.hakbanggul.feature.marketmood.data.TwelveDataTimeSeriesApi
+import com.hak.hakbanggul.feature.marketmood.domain.FetchPacing
 import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRepository
 import com.hak.hakbanggul.feature.marketmood.domain.MoodRulesRepository
 import dagger.Binds
@@ -15,6 +16,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import retrofit2.Retrofit
 import javax.inject.Singleton
+import kotlin.time.Duration.Companion.seconds
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -29,6 +31,10 @@ abstract class MarketMoodModule {
     abstract fun bindMoodRulesRepository(impl: MoodRulesRepositoryImpl): MoodRulesRepository
 
     companion object {
+        // Twelve Data 무료 요금제의 분당 한도(8)에 맞춘 값. 묶음 하나 7개, 65초 간격, 요청마다 10초 제한
+        @Provides
+        fun provideFetchPacing(): FetchPacing = FetchPacing(batchSize = 7, batchInterval = 65.seconds, requestTimeout = 10.seconds)
+
         // 두 Api는 요청에 키를 붙이는 출처별 Retrofit으로 만든다.
         @Provides
         @Singleton

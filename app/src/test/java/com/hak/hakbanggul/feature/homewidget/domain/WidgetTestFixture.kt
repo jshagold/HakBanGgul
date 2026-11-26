@@ -1,5 +1,7 @@
 package com.hak.hakbanggul.feature.homewidget.domain
 
+import com.hak.hakbanggul.feature.marketmood.domain.RefreshStamp
+import com.hak.hakbanggul.feature.marketmood.domain.DEFAULT_PACING
 import com.hak.hakbanggul.core.model.DataSource
 import com.hak.hakbanggul.core.network.ApiKeyAvailability
 import com.hak.hakbanggul.core.network.ApiKeyProvider
@@ -70,7 +72,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
 
     fun start() {
         val observeMood = ObserveMoodUseCase(rulesRepository, refresherRepository, calculator, UnconfinedTestDispatcher(testScope.testScheduler))
-        val refresh = RefreshMarketDataUseCase(refresherRepository, rulesRepository, calculator, clock)
+        val refresh = RefreshMarketDataUseCase(refresherRepository, rulesRepository, calculator, DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScope.testScheduler))
         refresher = MarketDataRefresher(
@@ -141,7 +143,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
 
 // 시작한 때를 읽다 예외가 나는 저장소
 class ThrowingStartedAtRepository(private val delegate: MarketDataRepository) : MarketDataRepository by delegate {
-    override suspend fun getLastStartedAt(): Instant? = throw IllegalStateException("시작한 때 읽기 실패")
+    override suspend fun getStamp(stamp: RefreshStamp): Instant? = throw IllegalStateException("때 읽기 실패")
 }
 
 // 규칙의 Flow가 예외를 던지는 규칙 저장소

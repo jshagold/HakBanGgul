@@ -5,12 +5,14 @@ import com.hak.hakbanggul.core.model.DataSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import java.io.IOException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.time.Duration.Companion.seconds
 
 // 받아 둔 값을 메모리에 두고, 받기의 답을 테스트가 정하는 가짜
 class FakeMarketDataRepository(
@@ -28,6 +30,9 @@ class FakeMarketDataRepository(
     val saveCalls = mutableListOf<SaveCall>()
     var failOnSave = false
 
+    // 넘긴 값에 따라 저장을 실패시킬 때(예: 첫 묶음의 저장만)
+    var failOnSaveIf: (Map<String, List<DailyValue>>) -> Boolean = { false }
+
     // requests: 시리즈 ID와 그 시작 날짜. 넘어온 순서 그대로다.
     data class FetchCall(val source: DataSource, val requests: List<Pair<String, LocalDate>>)
     data class SaveCall(val values: Map<String, List<DailyValue>>, val succeededAt: Instant?)
@@ -41,29 +46,44 @@ class FakeMarketDataRepository(
     }
 
     override suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?) {
+        callOrder += "save"
         saveCalls += SaveCall(values, succeededAt)
-        if (failOnSave) throw IOException("저장 실패")
+        if (failOnSave || failOnSaveIf(values)) throw IOException("저장 실패")
         stored.update { current ->
             StoredMarketData(current.values + values, succeededAt ?: current.lastSuccessAt)
         }
     }
 
-    // 마지막으로 받기를 시작한 때. 테스트가 직접 정할 수도 있다.
-    var lastStartedAt: Instant? = null
-    val saveLastStartedAtCalls = mutableListOf<Instant>()
-    var failOnSaveLastStartedAt = false
+    // 받기의 세 때. 테스트가 직접 정할 수도 있다.
+    val stamps = mutableMapOf<RefreshStamp, Instant>()
+    val saveStampCalls = mutableListOf<Pair<RefreshStamp, Instant>>()
 
-    // fetch와 saveLastStartedAt이 불린 차례
+    // 읽지 못하는 때(null을 돌려준다), 적지 못하는 때(IOException)
+    val failOnReadStamp = mutableSetOf<RefreshStamp>()
+    val failOnSaveStamp = mutableSetOf<RefreshStamp>()
+
+    // fetch, save, saveStamp가 불린 차례. "fetch", "save", "saveStamp(STARTED)"처럼 남긴다.
     val callOrder = mutableListOf<String>()
 
-    override suspend fun getLastStartedAt(): Instant? = lastStartedAt
+    // 마지막으로 받기를 시작한 때(STARTED)
+    var lastStartedAt: Instant?
+        get() = stamps[RefreshStamp.STARTED]
+        set(value) {
+            if (value == null) stamps.remove(RefreshStamp.STARTED) else stamps[RefreshStamp.STARTED] = value
+        }
 
-    override suspend fun saveLastStartedAt(startedAt: Instant) {
-        callOrder += "saveLastStartedAt"
-        saveLastStartedAtCalls += startedAt
-        if (failOnSaveLastStartedAt) throw IOException("시작한 때 저장 실패")
-        lastStartedAt = startedAt
+    override suspend fun getStamp(stamp: RefreshStamp): Instant? =
+        if (stamp in failOnReadStamp) null else stamps[stamp]
+
+    override suspend fun saveStamp(stamp: RefreshStamp, at: Instant) {
+        callOrder += "saveStamp($stamp)"
+        saveStampCalls += stamp to at
+        if (stamp in failOnSaveStamp) throw IOException("때 저장 실패: $stamp")
+        stamps[stamp] = at
     }
+
+    // 그 때를 적은 값들, 적은 차례대로
+    fun savedStamps(stamp: RefreshStamp): List<Instant> = saveStampCalls.filter { it.first == stamp }.map { it.second }
 
     fun setStored(builder: MoodTestData.Builder?, lastSuccessAt: Instant?) {
         stored.value = StoredMarketData(builder?.build() ?: emptyMap(), lastSuccessAt)
@@ -82,3 +102,13 @@ class FakeClock(var now: Instant) : Clock() {
     override fun withZone(zone: ZoneId?): Clock = this
     override fun instant(): Instant = now
 }
+
+// 테스트 스케줄러의 가상 시간에 묶은 시계: 시작 시각 + currentTime 밀리초
+class SchedulerClock(private val start: Instant, private val scheduler: TestCoroutineScheduler) : Clock() {
+    override fun getZone(): ZoneId = ZoneOffset.UTC
+    override fun withZone(zone: ZoneId?): Clock = this
+    override fun instant(): Instant = start.plusMillis(scheduler.currentTime)
+}
+
+// 기본 나눠 받기: 묶음 하나 7개, 65초 간격, 요청마다 10초 제한
+val DEFAULT_PACING = FetchPacing(7, 65.seconds, 10.seconds)

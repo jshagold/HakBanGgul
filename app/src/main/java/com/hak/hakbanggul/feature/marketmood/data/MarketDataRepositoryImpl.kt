@@ -12,6 +12,7 @@ import com.hak.hakbanggul.core.network.SourceCallExecutor
 import com.hak.hakbanggul.core.network.SourceCallResult
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
 import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRepository
+import com.hak.hakbanggul.feature.marketmood.domain.RefreshStamp
 import com.hak.hakbanggul.feature.marketmood.domain.SeriesRequest
 import com.hak.hakbanggul.feature.marketmood.domain.StoredMarketData
 import kotlinx.coroutines.async
@@ -42,7 +43,7 @@ class MarketDataRepositoryImpl @Inject constructor(
 
     // 받아 둔 값이 읽히지 않으면 앱을 멈추지 않고 두 표를 비운 뒤 다시 읽는다.
     // 다시 읽어도 안 되면 받아 둔 값이 없는 것으로 내준다.
-    // Room은 sync_stamps의 어느 행이 바뀌든 다시 내보내므로, 시작한 때를 적어도 같은 값이 다시 나가지 않게 거른다.
+    // Room은 sync_stamps의 어느 행이 바뀌든 다시 내보내므로, 받기의 때를 적어도 같은 값이 다시 나가지 않게 거른다.
     override fun observeStored(): Flow<StoredMarketData> =
         combine(dailyValueDao.observeAll(), syncStampDao.observe(REFRESH_STAMP)) { rows, stamp ->
             StoredMarketData(
@@ -138,26 +139,33 @@ class MarketDataRepositoryImpl @Inject constructor(
     }
 
     // 성공한 때와 다른 행에 적는다. 읽지 못하면 없는 것으로 본다.
-    override suspend fun getLastStartedAt(): Instant? =
+    override suspend fun getStamp(stamp: RefreshStamp): Instant? =
         try {
-            syncStampDao.observe(REFRESH_STARTED_STAMP).first()?.let { Instant.ofEpochMilli(it) }
+            syncStampDao.observe(stampName(stamp)).first()?.let { Instant.ofEpochMilli(it) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             null
         }
 
-    // 받기를 시작할 때 적는 것이라 save의 트랜잭션과 묶지 않는다.
-    override suspend fun saveLastStartedAt(startedAt: Instant) {
+    // 받기 중에 적는 것이라 save의 트랜잭션과 묶지 않는다.
+    // 받아 둔 값의 Flow는 성공한 때의 행만 보므로 이 행이 바뀌어도 새 값을 내보내지 않는다.
+    override suspend fun saveStamp(stamp: RefreshStamp, at: Instant) {
         try {
-            syncStampDao.upsert(SyncStampEntity(REFRESH_STARTED_STAMP, startedAt.toEpochMilli()))
+            syncStampDao.upsert(SyncStampEntity(stampName(stamp), at.toEpochMilli()))
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
             throw e
         } catch (e: Exception) {
-            throw IOException("받기를 시작한 때를 적지 못함", e)
+            throw IOException("받기의 때를 적지 못함", e)
         }
+    }
+
+    private fun stampName(stamp: RefreshStamp): String = when (stamp) {
+        RefreshStamp.STARTED -> REFRESH_STARTED_STAMP
+        RefreshStamp.FINISHED -> REFRESH_FINISHED_STAMP
+        RefreshStamp.TWELVE_DATA_REQUESTED -> TWELVE_DATA_REQUESTED_STAMP
     }
 
     // 비우다가 난 예외는 무시한다.
@@ -182,8 +190,14 @@ class MarketDataRepositoryImpl @Inject constructor(
         // 받기에 마지막으로 성공한 때의 이름
         const val REFRESH_STAMP = "market_mood_refresh"
 
-        // 마지막으로 받기를 시작한 때의 이름
+        // 마지막으로 받기를 시작한 때의 이름(앱을 바꿔도 남는다)
         const val REFRESH_STARTED_STAMP = "market_mood_refresh_started"
+
+        // 마지막으로 받기가 끝난 때의 이름
+        const val REFRESH_FINISHED_STAMP = "market_mood_refresh_finished"
+
+        // Twelve Data에 마지막으로 요청을 보낸 때의 이름
+        const val TWELVE_DATA_REQUESTED_STAMP = "twelve_data_last_request"
 
         // 표를 비운 뒤 다시 읽는 횟수
         const val MAX_READ_RETRIES = 1L

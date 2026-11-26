@@ -47,7 +47,7 @@ class MarketDataRefresherTest {
         val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
         val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
-        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock)
+        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         return MarketDataRefresher(refresh, observeMood, observeKeys, repository, clock, appScope)
@@ -197,7 +197,8 @@ class MarketDataRefresherTest {
         advanceTimeBy(1_000)
         runCurrent()
 
-        assertEquals(1, repository.saveCalls.size)
+        // FRED와 묶음 하나를 따로 저장한다.
+        assertEquals(2, repository.saveCalls.size)
         assertFalse(refresher.state.value.isRefreshing)
     }
 
@@ -429,7 +430,8 @@ class MarketDataRefresherTest {
         wait.complete(Unit)
         advanceUntilIdle()
 
-        assertEquals(1, repository.saveCalls.size)
+        // FRED와 묶음 하나를 따로 저장한다.
+        assertEquals(2, repository.saveCalls.size)
         assertEquals(10, repository.stored.value.values.size)
         assertFalse(refresher.state.value.isRefreshing)
     }
@@ -570,7 +572,7 @@ class MarketDataRefresherTest {
 
     @Test
     fun `R-62 시작한 때가 없으면 WHEN_NOT_RECENTLY_STARTED로 받는다`() = runTest {
-        assertNull(repository.getLastStartedAt())
+        assertNull(repository.getStamp(RefreshStamp.STARTED))
         assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_NOT_RECENTLY_STARTED))
     }
 

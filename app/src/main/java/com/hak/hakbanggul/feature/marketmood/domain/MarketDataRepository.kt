@@ -20,13 +20,12 @@ interface MarketDataRepository {
     // 저장하지 못하면 IOException을 던진다.
     suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?)
 
-    // 용어: 마지막으로 받기를 시작한 때
-    // lastStartedAt을 돌려준다. 적힌 적이 없거나 읽지 못하면 null이다. 예외를 던지지 않는다.
-    // 받아 둔 값(StoredMarketData)에 싣지 않는다. 실으면 받기를 시작할 때마다 판정을 다시 계산한다.
-    suspend fun getLastStartedAt(): Instant?
+    // 그 때를 돌려준다. 적힌 적이 없거나 읽지 못하면 null이다. 예외를 던지지 않는다.
+    suspend fun getStamp(stamp: RefreshStamp): Instant?
 
-    // 마지막으로 받기를 시작한 때를 적는다. 앞서 적힌 것은 바꾼다. 적지 못하면 IOException을 던진다.
-    suspend fun saveLastStartedAt(startedAt: Instant)
+    // 그 때를 적는다. 앞서 적힌 것은 바꾼다. 적지 못하면 IOException을 던진다.
+    // 받아 둔 값의 Flow는 때가 바뀌어도 새 값을 내보내지 않는다.
+    suspend fun saveStamp(stamp: RefreshStamp, at: Instant)
 }
 
 // 받아 둔 값. values의 키는 시리즈 ID이고 목록은 날짜 오름차순이다. lastSuccessAt은 마지막으로 받기에 성공한 때다.

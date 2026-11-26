@@ -121,7 +121,7 @@ class MarketDataRefresher @Inject constructor(
             }
             RefreshCondition.WHEN_KEYS_AVAILABLE -> true
             RefreshCondition.WHEN_NOT_RECENTLY_STARTED ->
-                isOver(marketDataRepository.getLastStartedAt(), now, RESTART_AFTER)
+                isOver(marketDataRepository.getStamp(RefreshStamp.STARTED), now, RESTART_AFTER)
         }
     }
 

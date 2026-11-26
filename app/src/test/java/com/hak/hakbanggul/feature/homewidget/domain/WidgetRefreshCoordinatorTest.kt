@@ -1,5 +1,6 @@
 package com.hak.hakbanggul.feature.homewidget.domain
 
+import com.hak.hakbanggul.feature.marketmood.domain.RefreshStamp
 import com.hak.hakbanggul.core.model.DataFetchError
 import com.hak.hakbanggul.core.network.ApiKeyAvailability.AVAILABLE
 import com.hak.hakbanggul.core.network.ApiKeyAvailability.MISSING
@@ -133,7 +134,8 @@ class WidgetRefreshCoordinatorTest {
         advanceUntilIdle()
         assertTrue(job.isCompleted)
         assertEquals(2, f.fetchCount)
-        assertEquals(1, f.repository.saveCalls.size)
+        // FRED와 묶음 하나를 따로 저장한다.
+        assertEquals(2, f.repository.saveCalls.size)
         assertEquals(10, f.repository.stored.value.values.size)
     }
 
@@ -203,6 +205,8 @@ class WidgetRefreshCoordinatorTest {
         advanceUntilIdle()
 
         f.setStoredNone()
+        // 두 번째 받기가 첫 묶음을 보내기 전에 65초를 기다리지 않게 한다.
+        f.repository.stamps.remove(RefreshStamp.TWELVE_DATA_REQUESTED)
         wait = f.holdFetch()
         launch { f.coordinator.request(FIRST_PLACED) }
         runCurrent()
@@ -302,7 +306,8 @@ class WidgetRefreshCoordinatorTest {
 
         wait.complete(Unit)
         advanceUntilIdle()
-        assertEquals(1, f.repository.saveCalls.size)
+        // FRED와 묶음 하나를 따로 저장한다.
+        assertEquals(2, f.repository.saveCalls.size)
     }
 
     @Test

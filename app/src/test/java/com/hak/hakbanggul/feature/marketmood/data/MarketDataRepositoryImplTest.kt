@@ -1,5 +1,6 @@
 package com.hak.hakbanggul.feature.marketmood.data
 
+import com.hak.hakbanggul.feature.marketmood.domain.RefreshStamp
 import com.hak.hakbanggul.core.database.DailyValueDao
 import com.hak.hakbanggul.core.database.DailyValueEntity
 import com.hak.hakbanggul.core.database.SyncStampDao
@@ -214,40 +215,40 @@ class MarketDataRepositoryImplTest {
 
     @Test
     fun `R-62 적은 것이 없으면 null`() = runTest {
-        assertNull(repository.getLastStartedAt())
+        assertNull(repository.getStamp(RefreshStamp.STARTED))
     }
 
     @Test
     fun `R-62 적은 때를 읽고 started 행에 UTC 밀리초로 들어 있다`() = runTest {
-        repository.saveLastStartedAt(t0100)
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
 
-        assertEquals(t0100, repository.getLastStartedAt())
+        assertEquals(t0100, repository.getStamp(RefreshStamp.STARTED))
         assertEquals(t0100.toEpochMilli(), stampDao.stamps.value["market_mood_refresh_started"])
     }
 
     @Test
     fun `R-62 다시 적으면 바뀐다`() = runTest {
-        repository.saveLastStartedAt(t0100)
-        repository.saveLastStartedAt(t0105)
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
+        repository.saveStamp(RefreshStamp.STARTED, t0105)
 
-        assertEquals(t0105, repository.getLastStartedAt())
+        assertEquals(t0105, repository.getStamp(RefreshStamp.STARTED))
     }
 
     @Test
     fun `R-62 시작한 때를 적어도 성공한 때는 그대로다`() = runTest {
         repository.save(spy, Instant.parse("2026-11-24T00:00:00Z"))
-        repository.saveLastStartedAt(t0100)
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
 
         assertEquals(Instant.parse("2026-11-24T00:00:00Z"), repository.observeStored().first().lastSuccessAt)
-        assertEquals(t0100, repository.getLastStartedAt())
+        assertEquals(t0100, repository.getStamp(RefreshStamp.STARTED))
     }
 
     @Test
     fun `R-62 저장해도 시작한 때는 그대로다`() = runTest {
-        repository.saveLastStartedAt(t0100)
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
         repository.save(spy, Instant.parse("2026-11-24T02:00:00Z"))
 
-        assertEquals(t0100, repository.getLastStartedAt())
+        assertEquals(t0100, repository.getStamp(RefreshStamp.STARTED))
     }
 
     @Test
@@ -257,7 +258,7 @@ class MarketDataRepositoryImplTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repository.observeStored().toList(received) }
         assertEquals(1, received.size)
 
-        repository.saveLastStartedAt(t0100)
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
 
         assertEquals(1, received.size)
     }
@@ -266,17 +267,81 @@ class MarketDataRepositoryImplTest {
     fun `R-62 읽다가 예외가 나면 예외 없이 null`() = runTest {
         stampDao.failOnObserve = true
 
-        assertNull(repository.getLastStartedAt())
+        assertNull(repository.getStamp(RefreshStamp.STARTED))
     }
 
     @Test
     fun `R-62 적다가 예외가 나면 IOException이 난다`() = runTest {
         stampDao.failOnUpsert = true
         try {
-            repository.saveLastStartedAt(t0100)
+            repository.saveStamp(RefreshStamp.STARTED, t0100)
             fail("IOException이 나야 한다")
         } catch (e: IOException) {
             // 기대한 대로
         }
+    }
+
+    // R-62, R-103 세 때
+
+    private val t0101 = Instant.parse("2026-11-24T01:01:00Z")
+    private val t0102 = Instant.parse("2026-11-24T01:02:00Z")
+
+    @Test
+    fun `R-103 세 때를 적고 읽으며 sync_stamps의 이름은 셋이다`() = runTest {
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
+        repository.saveStamp(RefreshStamp.FINISHED, t0102)
+        repository.saveStamp(RefreshStamp.TWELVE_DATA_REQUESTED, t0101)
+
+        assertEquals(t0100, repository.getStamp(RefreshStamp.STARTED))
+        assertEquals(t0102, repository.getStamp(RefreshStamp.FINISHED))
+        assertEquals(t0101, repository.getStamp(RefreshStamp.TWELVE_DATA_REQUESTED))
+        assertEquals(
+            mapOf(
+                "market_mood_refresh_started" to t0100.toEpochMilli(),
+                "market_mood_refresh_finished" to t0102.toEpochMilli(),
+                "twelve_data_last_request" to t0101.toEpochMilli(),
+            ),
+            stampDao.stamps.value,
+        )
+    }
+
+    @Test
+    fun `R-103 같은 때를 두 번 적으면 나중 것이다`() = runTest {
+        RefreshStamp.entries.forEach { stamp ->
+            repository.saveStamp(stamp, t0100)
+            repository.saveStamp(stamp, t0105)
+            assertEquals(stamp.name, t0105, repository.getStamp(stamp))
+        }
+    }
+
+    @Test
+    fun `R-103 읽기에 실패하면 null, 쓰기에 실패하면 IOException`() = runTest {
+        repository.saveStamp(RefreshStamp.FINISHED, t0100)
+        stampDao.failOnObserve = true
+        RefreshStamp.entries.forEach { assertNull(it.name, repository.getStamp(it)) }
+
+        stampDao.failOnUpsert = true
+        RefreshStamp.entries.forEach { stamp ->
+            try {
+                repository.saveStamp(stamp, t0100)
+                fail("IOException이 나야 한다: $stamp")
+            } catch (e: IOException) {
+                // 기대한 대로
+            }
+        }
+    }
+
+    @Test
+    fun `R-103 세 때를 적어도 받아 둔 값의 Flow는 새 값을 내보내지 않는다`() = runTest {
+        repository.save(spy, Instant.parse("2026-11-24T00:00:00Z"))
+        val received = mutableListOf<StoredMarketData>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repository.observeStored().toList(received) }
+        assertEquals(1, received.size)
+
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
+        repository.saveStamp(RefreshStamp.TWELVE_DATA_REQUESTED, t0101)
+        repository.saveStamp(RefreshStamp.FINISHED, t0102)
+
+        assertEquals(1, received.size)
     }
 }

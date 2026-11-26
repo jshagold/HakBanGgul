@@ -1,5 +1,6 @@
 package com.hak.hakbanggul.feature.marketmood.presentation
 
+import com.hak.hakbanggul.feature.marketmood.domain.DEFAULT_PACING
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.core.model.DataFetchError
 import com.hak.hakbanggul.core.model.DataSource.FRED
@@ -78,7 +79,7 @@ class MarketMoodViewModelTest {
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         val refresher = MarketDataRefresher(
-            RefreshMarketDataUseCase(repository, rulesRepository, calculator, clock),
+            RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock),
             observeMood,
             observeKeys,
             repository,
