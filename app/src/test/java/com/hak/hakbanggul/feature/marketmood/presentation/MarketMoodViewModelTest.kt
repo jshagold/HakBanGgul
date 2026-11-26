@@ -1,5 +1,7 @@
 package com.hak.hakbanggul.feature.marketmood.presentation
 
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertFalse
 import com.hak.hakbanggul.feature.marketmood.domain.ObserveMarketOverviewUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.MarketOverviewCalculator
@@ -74,7 +76,8 @@ class MarketMoodViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun TestScope.newViewModel(): MarketMoodViewModel {
+    // overviewDispatcher: 한 벌을 계산하는 디스패처. 돌지 않는 디스패처를 넘기면 한 벌이 오지 않는다.
+    private fun TestScope.newViewModel(overviewDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(testScheduler)): MarketMoodViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val clock = FakeClock(now)
         val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
@@ -86,7 +89,7 @@ class MarketMoodViewModelTest {
             rulesRepository,
             repository,
             MarketOverviewCalculator(calculator, RegimeCalculator(), ValuationCalculator()),
-            UnconfinedTestDispatcher(testScheduler),
+            overviewDispatcher,
             overviewScope,
         )
         val refresher = MarketDataRefresher(
@@ -477,4 +480,38 @@ class MarketMoodViewModelTest {
             assertFalse(it.clickable)
         }
     }
+
+    // R-22 한 벌이 처음 오기 전
+
+    @Test
+    fun `R-22 한 벌이 오기 전에는 Undecided이고 받는 중이면 새로 고침 자리가 REFRESHING이다`() = runTest {
+        stored(dataA())
+        holdFetch()
+        val viewModel = newViewModel(NeverDispatcher)
+        assertEquals(MoodBody.Undecided, viewModel.body)
+        assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+
+        viewModel.onRefreshClick()
+        runCurrent()
+
+        assertEquals(MoodBody.Undecided, viewModel.body)
+        assertEquals(RefreshButtonState.REFRESHING, viewModel.uiState.value.refreshButton)
+        assertNull(viewModel.uiState.value.banner)
+        pendingFetch.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+    }
+
+    @Test
+    fun `R-22 한 벌이 오기 전이어도 키가 없으면 키 안내 카드다`() = runTest {
+        keys.set(FRED, MISSING)
+        val viewModel = newViewModel(NeverDispatcher)
+        assertTrue(viewModel.body is MoodBody.KeyGuide)
+        assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+    }
+}
+
+// 넘겨받은 일을 돌리지 않는 디스패처. 한 벌이 오지 않는 때를 만든다.
+private object NeverDispatcher : CoroutineDispatcher() {
+    override fun dispatch(context: CoroutineContext, block: Runnable) = Unit
 }

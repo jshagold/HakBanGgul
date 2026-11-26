@@ -18,6 +18,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
@@ -31,8 +33,14 @@ class MarketMoodViewModel @Inject constructor(
 
     // 한 벌, 키 쓸 수 있음 여부, 받기 상태를 합쳐 만든다. 값이 처음 오기 전에는 Undecided다.
     // "판정이 있다"는 한 벌이 있는지(null이 아님)로 본다.
+    // 한 벌은 계산에 시간이 걸려, 처음 오기 전에도 키와 받기 상태로 상태를 만든다(받는 중이면 진행 표시를 보인다).
     val uiState: StateFlow<MarketMoodUiState> =
-        combine(observeOverview(), observeSourceKeys(), refresher.state, ::buildState)
+        combine(
+            observeOverview().map<MarketOverview?, OverviewValue> { OverviewValue.Received(it) }.onStart { emit(OverviewValue.NotYet) },
+            observeSourceKeys(),
+            refresher.state,
+            ::buildState,
+        )
             .stateIn(viewModelScope, SharingStarted.Eagerly, INITIAL_STATE)
 
     fun onRefreshClick() = refresher.refresh()
@@ -41,21 +49,31 @@ class MarketMoodViewModel @Inject constructor(
 
     fun onScreenShown() = refresher.onScreenShown()
 
+    // 한 벌이 아직 오지 않음과 와서 null(판정을 낼 수 없음)을 가른다.
+    private sealed interface OverviewValue {
+        data object NotYet : OverviewValue
+        data class Received(val overview: MarketOverview?) : OverviewValue
+    }
+
     private fun buildState(
-        overview: MarketOverview?,
+        value: OverviewValue,
         keys: Map<DataSource, ApiKeyAvailability>,
         refresh: RefreshState,
     ): MarketMoodUiState {
         val lastFailure = refresh.lastFailure
+        val overview = (value as? OverviewValue.Received)?.overview
         val body = when {
             keys.values.any { it != ApiKeyAvailability.AVAILABLE } -> MoodBody.KeyGuide(keyGuideRows(keys))
+            value is OverviewValue.NotYet -> MoodBody.Undecided
             overview != null -> MoodBody.Assessment(mapper.mainScreen(overview, refresh.isRefreshing))
             lastFailure == null || refresh.isRefreshing -> MoodBody.Loading
             else -> MoodBody.Failed(failedMessage(lastFailure))
         }
+        // 본문이 아직 정해지지 않았어도 받는 중이면 진행 표시를 보인다.
         val refreshButton = when {
-            body is MoodBody.KeyGuide || body is MoodBody.Undecided -> RefreshButtonState.DISABLED
+            body is MoodBody.KeyGuide -> RefreshButtonState.DISABLED
             refresh.isRefreshing -> RefreshButtonState.REFRESHING
+            body is MoodBody.Undecided -> RefreshButtonState.DISABLED
             else -> RefreshButtonState.ENABLED
         }
         val banner = if (body is MoodBody.Assessment && lastFailure != null) banner(lastFailure) else null

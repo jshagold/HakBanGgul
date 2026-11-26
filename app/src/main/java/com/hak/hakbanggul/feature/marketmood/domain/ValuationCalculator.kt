@@ -57,13 +57,15 @@ class ValuationCalculator @Inject constructor() {
         val drawdown = series.drawdownAt(asOfIndex)
         val threeMonthReturn = values[asOfIndex] / values[threeMonthIndex] - 1
         val weightSum = rules.shortWeight + rules.longWeight
+        val shortRanked = Ranked(shortDeviations)
+        val longRanked = Ranked(longDeviations)
 
         val result = LinkedHashMap<String, PricePositionAssessment>()
         for (period in periods) {
             val window = period.positionWindow
             if (window < 2) continue
-            val shortPositions = positions(shortDeviations, window)
-            val longPositions = positions(longDeviations, window)
+            val shortPositions = positions(shortRanked, window)
+            val longPositions = positions(longRanked, window)
             val pricePositions = DoubleArray(values.size) { i ->
                 val s = shortPositions[i]
                 val l = longPositions[i]
@@ -106,12 +108,13 @@ class ValuationCalculator @Inject constructor() {
         val inflation = inflationOf(values[rules.consumerPriceSeries.seriesId], asOfDate) ?: return emptyMap()
         // 실질금리의 날 뒤의 값은 쓰지 않는다.
         val yields = realYield.values.copyOf(realYieldIndex + 1)
+        val ranked = Ranked(yields)
 
         val result = LinkedHashMap<String, RateBurdenAssessment>()
         for (period in periods) {
             val window = period.positionWindow
             if (window < 2) continue
-            val scores = scores(positions(yields, window), rules.smoothingDays)
+            val scores = scores(positions(ranked, window), rules.smoothingDays)
             val score = scores[realYieldIndex] ?: continue
             val stages = stagesOf(scores.filterNotNull(), rules)
             result[period.id] = RateBurdenAssessment(
@@ -168,26 +171,66 @@ class ValuationCalculator @Inject constructor() {
         }
     }
 
-    // 용어: 위치
-    // 날마다의 위치(0~1). 그날을 포함한 최근 window개 값이 모두 있는 날에만 내고(NaN이 아닌 값), 날마다 창의 값을 처음부터 다시 센다.
-    // 위치 = (창에서 그날의 값을 뺀 나머지 가운데 작은 값의 수 + 같은 값의 수 × 0.5) ÷ (window - 1)
-    private fun positions(values: DoubleArray, window: Int): DoubleArray {
-        val result = DoubleArray(values.size) { Double.NaN }
-        for (i in window - 1 until values.size) {
-            val today = values[i]
-            if (today.isNaN()) continue
-            var less = 0
-            var equal = 0
-            var complete = true
-            for (j in i - window + 1 until i) {
-                val other = values[j]
-                if (other.isNaN()) {
-                    complete = false
-                    break
-                }
-                if (other < today) less++ else if (other == today) equal++
+    // 값마다의 순위(1부터, 같은 값은 같은 순위, NaN은 0)와 순위의 수. 기간이 여럿이어도 한 번만 만든다.
+    // -0.0과 0.0은 같은 값으로 센다(== 비교와 같게). 0.0을 더하면 -0.0이 0.0이 된다.
+    private class Ranked(val values: DoubleArray) {
+        val ranks = IntArray(values.size)
+        val rankCount: Int
+
+        init {
+            val sorted = values.filter { !it.isNaN() }.map { it + 0.0 }.toDoubleArray()
+            sorted.sort()
+            var count = 0
+            for (v in sorted) if (count == 0 || sorted[count - 1] != v) sorted[count++] = v
+            rankCount = count
+            for (i in values.indices) {
+                if (!values[i].isNaN()) ranks[i] = java.util.Arrays.binarySearch(sorted, 0, count, values[i] + 0.0) + 1
             }
-            if (complete) result[i] = (less + equal * 0.5) / (window - 1)
+        }
+    }
+
+    // 용어: 위치
+    // 날마다의 위치(0~1). 그날을 포함한 최근 window개 값이 모두 있는 날에만 낸다(NaN이 아닌 값).
+    // 위치 = (창에서 그날의 값을 뺀 나머지 가운데 작은 값의 수 + 같은 값의 수 × 0.5) ÷ (window - 1)
+    // 날마다 창을 처음부터 세지 않고, 값의 순위로 만든 펜윅 트리에 창의 값을 하나씩 넣고 빼며 이어 쓴다.
+    // 작은 값과 같은 값을 세는 비교는 처음부터 세던 때와 같아(<, ==) 위치가 같다.
+    private fun positions(input: Ranked, window: Int): DoubleArray {
+        val values = input.values
+        val ranks = input.ranks
+        val result = DoubleArray(values.size) { Double.NaN }
+        if (window < 2 || values.size < window) return result
+        val size = input.rankCount
+        val tree = IntArray(size + 1)
+        fun add(rank: Int, delta: Int) {
+            var i = rank
+            while (i <= size) {
+                tree[i] += delta
+                i += i and -i
+            }
+        }
+        fun countUpTo(rank: Int): Int {
+            var i = rank
+            var sum = 0
+            while (i > 0) {
+                sum += tree[i]
+                i -= i and -i
+            }
+            return sum
+        }
+        // 창에 든 NaN의 수. 하나라도 있으면 그날의 위치를 내지 않는다.
+        var nanInWindow = 0
+        fun put(index: Int, delta: Int) {
+            if (ranks[index] == 0) nanInWindow += delta else add(ranks[index], delta)
+        }
+        // i일을 볼 때 트리에는 그 앞 window - 1개(i - window + 1부터 i - 1까지)의 값이 들어 있다.
+        for (i in values.indices) {
+            if (i >= window - 1 && ranks[i] != 0 && nanInWindow == 0) {
+                val less = countUpTo(ranks[i] - 1)
+                val equal = countUpTo(ranks[i]) - less
+                result[i] = (less + equal * 0.5) / (window - 1)
+            }
+            put(i, 1)
+            if (i - window + 1 >= 0) put(i - window + 1, -1)
         }
         return result
     }
