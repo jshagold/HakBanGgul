@@ -10,8 +10,10 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.feature.homewidget.di.homeWidgetEntryPoint
@@ -19,7 +21,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 
 // 용어: 큰 위젯
-// 가로 2칸 세로 2칸. 첫 줄이 위쪽 끝, 마지막 줄이 아래쪽 끝, 단계 이름이나 안내 문구가 그 사이 가운데에 놓인다.
+// 가로 2칸 세로 2칸. 첫 줄이 위쪽 끝, 마지막 줄이 아래쪽 끝, 단계 이름과 매매 판단 두 줄의 묶음이나 안내 문구가 그 사이 가운데에 놓인다.
 class LargeMoodWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -61,7 +63,12 @@ private fun LargeMoodContent(ui: HomeWidgetUiState) {
                 contentAlignment = Alignment.CenterStart,
             ) {
                 when (val main = ui.main) {
-                    is WidgetMain.Stage -> WidgetText(main.name, type.widgetLargeStage, stageColor(main.stage))
+                    // 단계 이름과 그 아래 매매 판단 두 줄 묶음을 한 묶음으로 둔다.
+                    is WidgetMain.Stage -> Column(horizontalAlignment = Alignment.Start) {
+                        WidgetText(main.name, type.widgetLargeStage, stageColor(main.stage))
+                        Spacer(GlanceModifier.height(WidgetTheme.dimens.widgetLargeValuationGap))
+                        WidgetValuationLines(main, short = false)
+                    }
                     is WidgetMain.Message -> WidgetText(main.text, type.widgetLargeMessage, colors.text, keepWords = true)
                 }
             }

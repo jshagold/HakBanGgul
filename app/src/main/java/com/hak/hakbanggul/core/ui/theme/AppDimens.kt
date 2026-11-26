@@ -181,4 +181,9 @@ data class AppDimens(
     // 진행 표시의 그림 칸(아이콘과 같은 칸에 놓인다)
     val widgetSmallProgress: Dp = 16.dp,
     val widgetLargeProgress: Dp = 18.dp,
+    // 매매 판단 줄: 작은 위젯의 단계 이름과 두 줄 묶음 사이(가로), 큰 위젯의 단계 이름과 두 줄 묶음 사이(세로),
+    // 줄 안의 이름 쪽과 단계 쪽 사이
+    val widgetSmallValuationGap: Dp = 10.dp,
+    val widgetLargeValuationGap: Dp = 4.dp,
+    val widgetValuationNameGap: Dp = 3.dp,
 )

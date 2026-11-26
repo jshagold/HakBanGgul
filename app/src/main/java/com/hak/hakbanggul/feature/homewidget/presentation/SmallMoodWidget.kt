@@ -9,10 +9,12 @@ import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.provideContent
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
+import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.width
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.feature.homewidget.di.homeWidgetEntryPoint
 import kotlinx.coroutines.flow.filterNotNull
@@ -61,7 +63,12 @@ private fun SmallMoodContent(ui: HomeWidgetUiState) {
             WidgetText(ui.title, type.widgetSmallLine, colors.textMuted)
             when (val main = ui.main) {
                 is WidgetMain.Stage -> {
-                    WidgetText(main.name, type.widgetSmallStage, stageColor(main.stage))
+                    // 둘째 줄: 단계 이름과 그 오른쪽의 매매 판단 두 줄 묶음. 두 줄 묶음은 단계 이름과 세로 가운데를 맞춘다.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        WidgetText(main.name, type.widgetSmallStage, stageColor(main.stage))
+                        Spacer(GlanceModifier.width(dimens.widgetSmallValuationGap))
+                        WidgetValuationLines(main, short = true)
+                    }
                     WidgetText(main.asOfText, type.widgetSmallLine, colors.textMuted)
                 }
                 is WidgetMain.Message -> {

@@ -71,9 +71,12 @@ data class AppTypography(
     val widgetSmallMessage: TextStyle = style(14, FontWeight.Bold),
     // 큰 위젯: 첫 줄, 단계 이름, 안내 문구, 마지막 줄(날짜, "눌러서 앱 열기")
     val widgetLargeTitle: TextStyle = style(13, FontWeight.Normal),
-    val widgetLargeStage: TextStyle = style(48, FontWeight.Bold),
+    val widgetLargeStage: TextStyle = style(40, FontWeight.Bold),
     val widgetLargeMessage: TextStyle = style(17, FontWeight.Bold),
     val widgetLargeFooter: TextStyle = style(12, FontWeight.Normal),
+    // 두 위젯의 매매 판단 줄: 이름 쪽, 단계 쪽. 시안의 줄 높이(작은 위젯 1.3, 큰 위젯 1.35)는 Glance에서 정할 수 없어 두지 않는다.
+    val widgetValuationName: TextStyle = style(12, FontWeight.Normal),
+    val widgetValuationStage: TextStyle = style(12, FontWeight.Bold),
 )
 
 private fun style(

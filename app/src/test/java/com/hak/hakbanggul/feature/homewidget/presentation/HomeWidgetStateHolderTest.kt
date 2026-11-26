@@ -11,6 +11,11 @@ import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton.DISABLED
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton.ENABLED
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetState
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.BUFFER_RULES
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.MIDDLE_50
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.bufferData
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetValuation
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +30,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.time.LocalDate
 
@@ -50,8 +56,26 @@ class HomeWidgetStateHolderTest {
 
     private fun asOf(month: Int, day: Int) = UiText(R.string.widget_as_of, listOf(month, day))
 
+    private fun line(stage: ValuationStage, nameRes: Int, shortRes: Int, score: Int, stageNameRes: Int) = WidgetValuationLine(
+        stage = stage,
+        name = UiText(nameRes),
+        shortName = UiText(shortRes),
+        scoreText = UiText(R.string.valuation_score, listOf(score, UiText(stageNameRes))),
+        stageName = UiText(stageNameRes),
+    )
+
+    private fun priceLine(stage: ValuationStage, score: Int, stageNameRes: Int) =
+        line(stage, R.string.price_position_name, R.string.widget_price_position_short, score, stageNameRes)
+
+    private fun rateLine(stage: ValuationStage, score: Int, stageNameRes: Int) =
+        line(stage, R.string.rate_burden_name, R.string.widget_rate_burden_short, score, stageNameRes)
+
+    // 데이터 A의 두 줄: 둘 다 50 · 보통
+    private val priceA = priceLine(ValuationStage.MIDDLE, 50, R.string.valuation_middle)
+    private val rateA = rateLine(ValuationStage.MIDDLE, 50, R.string.valuation_middle)
+
     private fun stage(stage: MarketStage, nameRes: Int, month: Int = 11, day: Int = 23) =
-        WidgetMain.Stage(stage, UiText(nameRes), asOf(month, day))
+        WidgetMain.Stage(stage, UiText(nameRes), asOf(month, day), priceA, rateA)
 
     private val keyGuide = HomeWidgetUiState(
         UiText(R.string.app_name),
@@ -60,7 +84,10 @@ class HomeWidgetStateHolderTest {
     )
 
     private fun assessment(stage: MarketStage, date: String) =
-        WidgetState(WidgetContent.Assessment(stage, LocalDate.parse(date)), ENABLED)
+        WidgetState(WidgetContent.Assessment(stage, LocalDate.parse(date), MIDDLE_50, MIDDLE_50), ENABLED)
+
+    private fun valuations(stage: MarketStage, price: WidgetValuation, rate: WidgetValuation) =
+        WidgetState(WidgetContent.Assessment(stage, LocalDate.parse("2026-11-23"), price, rate), ENABLED).toUiState().main as WidgetMain.Stage
 
     // R-06 첫 줄, 단계 이름, 날짜 줄의 글 / R-11 마지막 줄
 
@@ -173,5 +200,92 @@ class HomeWidgetStateHolderTest {
         runCurrent()
 
         assertEquals(stage(MarketStage.BULL, R.string.stage_bull), h.state.value!!.main)
+    }
+
+    // 매매 판단 두 줄 (위젯 버전업-001)
+
+    // R-06, R-44, R-45 두 줄의 순서와 글
+
+    @Test
+    fun `R-06 R-44 R-45 데이터 A면 두 줄이 주가 위치, 금리 부담 순이고 둘 다 50 보통`() = runTest {
+        val main = holder(fixture()).state.value!!.main
+        assertEquals(
+            WidgetMain.Stage(MarketStage.BULL, UiText(R.string.stage_bull), asOf(11, 23), priceA, rateA),
+            main,
+        )
+    }
+
+    @Test
+    fun `R-44 R-45 HIGH 74, 98`() {
+        val main = valuations(MarketStage.BULL, WidgetValuation(74, ValuationStage.HIGH), WidgetValuation(98, ValuationStage.HIGH))
+        assertEquals(priceLine(ValuationStage.HIGH, 74, R.string.valuation_price_high), main.pricePosition)
+        assertEquals(rateLine(ValuationStage.HIGH, 98, R.string.valuation_rate_high), main.rateBurden)
+    }
+
+    @Test
+    fun `R-44 R-45 LOW 12, 20`() {
+        val main = valuations(MarketStage.BEAR, WidgetValuation(12, ValuationStage.LOW), WidgetValuation(20, ValuationStage.LOW))
+        assertEquals(priceLine(ValuationStage.LOW, 12, R.string.valuation_price_low), main.pricePosition)
+        assertEquals(rateLine(ValuationStage.LOW, 20, R.string.valuation_rate_low), main.rateBurden)
+    }
+
+    @Test
+    fun `R-44 R-45 MIDDLE 58, 52`() {
+        val main = valuations(MarketStage.NEUTRAL, WidgetValuation(58, ValuationStage.MIDDLE), WidgetValuation(52, ValuationStage.MIDDLE))
+        assertEquals(priceLine(ValuationStage.MIDDLE, 58, R.string.valuation_middle), main.pricePosition)
+        assertEquals(rateLine(ValuationStage.MIDDLE, 52, R.string.valuation_middle), main.rateBurden)
+    }
+
+    // R-46 점수와 표시 단계가 다른 날의 글
+
+    private fun UiText.resIds(): List<Int> = listOf(resId) + args.filterIsInstance<UiText>().flatMap { it.resIds() }
+
+    @Test
+    fun `R-46 점수와 표시 단계가 달라도 그대로 적고 안내 줄은 없다`() {
+        val state = WidgetState(
+            WidgetContent.Assessment(
+                MarketStage.BULL,
+                LocalDate.parse("2026-11-23"),
+                WidgetValuation(33, ValuationStage.LOW),
+                WidgetValuation(65, ValuationStage.HIGH),
+            ),
+            ENABLED,
+        ).toUiState()
+        val main = state.main as WidgetMain.Stage
+        assertEquals(priceLine(ValuationStage.LOW, 33, R.string.valuation_price_low), main.pricePosition)
+        assertEquals(rateLine(ValuationStage.HIGH, 65, R.string.valuation_rate_high), main.rateBurden)
+
+        val texts = listOf(state.title, main.name, main.asOfText) +
+            listOf(main.pricePosition, main.rateBurden).flatMap { listOf(it.name, it.shortName, it.scoreText, it.stageName) }
+        val ids = texts.flatMap { it.resIds() }
+        assertFalse(R.string.valuation_notice_low in ids)
+        assertFalse(R.string.valuation_notice_high in ids)
+    }
+
+    @Test
+    fun `R-46 완충 데이터면 금리 부담은 35 낮음, LOW`() = runTest {
+        val f = fixture().apply {
+            rulesRepository.rules.value = BUFFER_RULES
+            repository.setStored(bufferData(), now.minusSeconds(3600))
+        }
+        val main = holder(f).state.value!!.main as WidgetMain.Stage
+        assertEquals(rateLine(ValuationStage.LOW, 35, R.string.valuation_rate_low), main.rateBurden)
+    }
+
+    // R-30 받아 둔 값을 바꾸면 매매 판단도 따라 바뀜
+
+    @Test
+    fun `R-30 받아 둔 값을 완충 데이터로 바꾸면 금리 부담이 35 낮음으로 바뀐다`() = runTest {
+        val f = fixture().apply { rulesRepository.rules.value = BUFFER_RULES }
+        val h = holder(f)
+        assertEquals(rateA, (h.state.value!!.main as WidgetMain.Stage).rateBurden)
+
+        f.repository.setStored(bufferData(), f.now.minusSeconds(3600))
+        runCurrent()
+
+        val main = h.state.value!!.main as WidgetMain.Stage
+        assertEquals(rateLine(ValuationStage.LOW, 35, R.string.valuation_rate_low), main.rateBurden)
+        assertEquals(UiText(R.string.stage_bull), main.name)
+        assertEquals(asOf(11, 23), main.asOfText)
     }
 }

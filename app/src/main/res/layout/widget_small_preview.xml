@@ -24,14 +24,84 @@
             android:textColor="#FF4A5360"
             android:textSize="12sp" />
 
-        <!-- AppTypography.widgetSmallStage, AppColors.stageBull -->
-        <TextView
+        <!-- 둘째 줄: 단계 이름과 그 오른쪽의 매매 판단 두 줄. 두 줄은 단계 이름과 세로 가운데를 맞춘다. -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/stage_bull"
-            android:textColor="#FFC5221F"
-            android:textSize="28sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!-- AppTypography.widgetSmallStage, AppColors.stageBull -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/stage_bull"
+                android:textColor="#FFC5221F"
+                android:textSize="28sp"
+                android:textStyle="bold" />
+
+            <!-- 단계 이름과 두 줄 사이: AppDimens.widgetSmallValuationGap -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:orientation="vertical">
+
+                <!-- 매매 판단 줄: 이름 쪽 AppTypography.widgetValuationName, AppColors.textMuted /
+                     사이 AppDimens.widgetValuationNameGap / 단계 쪽 AppTypography.widgetValuationStage, AppColors.valuationHigh -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:text="@string/widget_price_position_short"
+                        android:textColor="#FF4A5360"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
+                        android:maxLines="1"
+                        android:text="@string/valuation_price_high"
+                        android:textColor="#FFB45309"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- 매매 판단 줄: 이름 쪽 AppTypography.widgetValuationName, AppColors.textMuted /
+                     사이 AppDimens.widgetValuationNameGap / 단계 쪽 AppTypography.widgetValuationStage, AppColors.valuationHigh -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:maxLines="1"
+                        android:text="@string/widget_rate_burden_short"
+                        android:textColor="#FF4A5360"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
+                        android:maxLines="1"
+                        android:text="@string/valuation_rate_high"
+                        android:textColor="#FFB45309"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
 
         <!-- AppTypography.widgetSmallLine, AppColors.textMuted -->
         <TextView

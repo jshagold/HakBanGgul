@@ -26,15 +26,84 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- AppTypography.widgetLargeStage, AppColors.stageBull -->
-            <TextView
+            <!-- 단계 이름과 그 아래 매매 판단 두 줄을 한 묶음으로 세로 가운데에 둔다 -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="start|center_vertical"
-                android:text="@string/stage_bull"
-                android:textColor="#FFC5221F"
-                android:textSize="48sp"
-                android:textStyle="bold" />
+                android:orientation="vertical">
+
+                <!-- AppTypography.widgetLargeStage, AppColors.stageBull -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/stage_bull"
+                    android:textColor="#FFC5221F"
+                    android:textSize="40sp"
+                    android:textStyle="bold" />
+
+                <!-- 단계 이름과 두 줄 사이: AppDimens.widgetLargeValuationGap -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="vertical">
+
+                    <!-- 매매 판단 줄: 이름 쪽 AppTypography.widgetValuationName, AppColors.textMuted /
+                         사이 AppDimens.widgetValuationNameGap / 단계 쪽 AppTypography.widgetValuationStage, AppColors.valuationHigh -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:maxLines="1"
+                            android:text="@string/price_position_name"
+                            android:textColor="#FF4A5360"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:maxLines="1"
+                            android:text="@string/widget_preview_price_position_score"
+                            android:textColor="#FFB45309"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- 매매 판단 줄: 이름 쪽 AppTypography.widgetValuationName, AppColors.textMuted /
+                         사이 AppDimens.widgetValuationNameGap / 단계 쪽 AppTypography.widgetValuationStage, AppColors.valuationHigh -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:maxLines="1"
+                            android:text="@string/rate_burden_name"
+                            android:textColor="#FF4A5360"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:maxLines="1"
+                            android:text="@string/widget_preview_rate_burden_score"
+                            android:textColor="#FFB45309"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
         </FrameLayout>
 
         <!-- AppTypography.widgetLargeFooter, AppColors.textMuted -->

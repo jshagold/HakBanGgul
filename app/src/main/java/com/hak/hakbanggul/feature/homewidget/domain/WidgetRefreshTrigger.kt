@@ -10,4 +10,8 @@ enum class WidgetRefreshTrigger {
 
     // 새로 고침을 누름
     MANUAL,
+
+    // 용어: 앱을 바꾼 때
+    // 앱이 새 버전으로 바뀜(위젯이 놓여 있을 때)
+    APP_UPDATED,
 }

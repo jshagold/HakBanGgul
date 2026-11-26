@@ -52,6 +52,20 @@ class WidgetRefreshScheduler @Inject constructor(
         workManager.enqueueUniqueWork(MANUAL_WORK, ExistingWorkPolicy.KEEP, builder.build())
     }
 
+    // 앱을 바꿈: 놓인 작은 위젯과 큰 위젯을 합쳐 하나라도 있으면 받는 작업을 하나 넣는다(같은 작업이 있으면 그대로).
+    // 연결이 없으면 연결이 돌아온 뒤에 돈다. Android 12 이상에서는 급한 작업으로 넣어 곧 돌게 해,
+    // 앱을 바꾼 직후 위젯에 받지 못함이 보이는 시간을 줄인다. 한도를 넘으면 보통 작업으로 돈다.
+    suspend fun onAppUpdated() {
+        if (placedCount() == 0) return
+        val builder = OneTimeWorkRequestBuilder<WidgetRefreshWorker>()
+            .setConstraints(connected)
+            .setInputData(WidgetRefreshWorker.inputFor(WidgetRefreshTrigger.APP_UPDATED))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+        }
+        workManager.enqueueUniqueWork(APP_UPDATED_WORK, ExistingWorkPolicy.KEEP, builder.build())
+    }
+
     // 놓인 위젯이 있으면 주기 작업을 넣고(있으면 그대로), 없으면 뺀다. 시스템의 알림을 놓친 경우에 대비해 프로세스가 시작될 때 부른다.
     suspend fun syncPeriodic() {
         if (placedCount() > 0) enqueuePeriodic() else workManager.cancelUniqueWork(PERIODIC_WORK)
@@ -78,6 +92,7 @@ class WidgetRefreshScheduler @Inject constructor(
         const val PERIODIC_WORK = "hakbanggul.homewidget.refresh.periodic"
         const val FIRST_PLACED_WORK = "hakbanggul.homewidget.refresh.first_placed"
         const val MANUAL_WORK = "hakbanggul.homewidget.refresh.manual"
+        const val APP_UPDATED_WORK = "hakbanggul.homewidget.refresh.app_updated"
         const val PERIOD_HOURS = 6L
     }
 }

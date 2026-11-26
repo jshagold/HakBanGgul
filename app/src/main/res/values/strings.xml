@@ -135,4 +135,9 @@
     <string name="rate_evidence_year_same">1년 전과 같음</string>
     <string name="rate_evidence_rates">10년물 국채 %1$s · 기준금리 %2$s</string>
     <string name="rate_evidence_inflation">물가 %1$s · 목표 %2$s%%보다 %3$s · %4$d월 값</string>
+    <!-- 홈 화면 위젯의 매매 판단 줄 -->
+    <string name="widget_price_position_short">주가</string>
+    <string name="widget_rate_burden_short">금리</string>
+    <string name="widget_preview_price_position_score">74 · 비싼 편</string>
+    <string name="widget_preview_rate_burden_score">98 · 높음</string>
 </resources>

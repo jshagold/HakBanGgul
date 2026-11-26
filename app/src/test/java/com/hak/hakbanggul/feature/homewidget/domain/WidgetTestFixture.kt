@@ -20,6 +20,7 @@ import com.hak.hakbanggul.feature.marketmood.domain.ObserveSourceKeysUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RefreshMarketDataUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.RequestRefreshUseCase
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -108,10 +109,31 @@ class WidgetTestFixture(private val testScope: TestScope) {
     }
 
     companion object {
+        // 데이터 A의 매매 판단: 주가 위치와 금리 부담 모두 점수 50, 표시 단계 MIDDLE
+        val MIDDLE_50 = WidgetValuation(50, ValuationStage.MIDDLE)
+
         val ASSESSMENT_A = WidgetContent.Assessment(
             com.hak.hakbanggul.feature.marketmood.domain.MarketStage.BULL,
             LocalDate.parse("2026-11-23"),
+            MIDDLE_50,
+            MIDDLE_50,
         )
+
+        // 완충 규칙: 시험용 규칙에서 매매 판단의 위치 기간만 101, 평균 일수만 1로 바꾼 것
+        val BUFFER_RULES: MoodRules = MoodTestData.RULES.copy(
+            valuation = MoodTestData.RULES.valuation.copy(positionWindow = 101, smoothingDays = 1),
+        )
+
+        // 완충 데이터: 데이터 A에서 실질금리의 마지막 102개 평일(2026-11-23으로 끝남) 값만 점수열 30, 35가 나오는 값으로 덮은 것.
+        // 그 앞의 날은 2.00 그대로 둔다(1년 전 값이 있어야 금리 부담이 나온다).
+        fun bufferData(): MoodTestData.Builder {
+            val values = MoodTestData.valuesForScores(listOf(30, 35))
+            val builder = MoodTestData.dataA()
+            MoodTestData.weekdaysEndingAt(MoodTestData.END, values.size).zip(values).forEach { (day, value) ->
+                builder.set(MoodTestData.REAL_YIELD, day, value)
+            }
+            return builder
+        }
     }
 }
 

@@ -92,9 +92,18 @@ class ObserveWidgetStateUseCase @Inject constructor(
     // 표에서 고른다(위 행이 먼저). 판정의 다른 값은 쓰지 않는다.
     private fun select(input: Inputs): WidgetContent = when {
         input.keyMissingOrInvalid -> WidgetContent.KeyGuide
-        input.mood != null -> WidgetContent.Assessment(input.mood.displayedStage, input.mood.asOfDate)
+        input.mood != null -> assessment(input.mood)
         else -> WidgetContent.NotReceived
     }
+
+    // 매매 판단은 점수와 표시 단계만 옮긴다. 점수로 정한 단계, 근거 숫자, 경계와 완충은 옮기지 않아
+    // 위젯이 쓰지 않는 값이 같은 상태인지의 판단에 섞이지 않게 한다.
+    private fun assessment(mood: MoodAssessment): WidgetContent.Assessment = WidgetContent.Assessment(
+        stage = mood.displayedStage,
+        asOfDate = mood.asOfDate,
+        pricePosition = WidgetValuation(mood.valuation.pricePosition.score, mood.valuation.pricePosition.displayedStage),
+        rateBurden = WidgetValuation(mood.valuation.rateBurden.score, mood.valuation.rateBurden.displayedStage),
+    )
 
     // 버튼은 그대로 두기와 미루기를 거치지 않고 바로 바뀐다.
     private fun buttonFor(content: WidgetContent, isManualRefreshing: Boolean): WidgetRefreshButton = when {

@@ -30,6 +30,8 @@ class WidgetRefreshCoordinator @Inject constructor(
             WidgetRefreshTrigger.FIRST_PLACED -> requestQuietly(RefreshCondition.WHEN_STALE)
             WidgetRefreshTrigger.PERIODIC -> requestQuietly(RefreshCondition.WHEN_KEYS_AVAILABLE)
             WidgetRefreshTrigger.MANUAL -> requestManual()
+            // 앱을 바꾼 때는 놓은 때와 같이 오래되었을 때만 받고, 눌러 받는 중을 바꾸지 않는다.
+            WidgetRefreshTrigger.APP_UPDATED -> requestQuietly(RefreshCondition.WHEN_STALE)
         }
     }
 

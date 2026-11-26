@@ -12,6 +12,15 @@ import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton.DISABLED
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton.ENABLED
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton.IN_PROGRESS
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.ASSESSMENT_A
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.BUFFER_RULES
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.MIDDLE_50
+import com.hak.hakbanggul.feature.homewidget.domain.WidgetTestFixture.Companion.bufferData
+import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
+import com.hak.hakbanggul.feature.marketmood.domain.ObserveMoodUseCase
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationCalculator
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
+import kotlinx.coroutines.flow.first
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
@@ -152,7 +161,7 @@ class ObserveWidgetStateUseCaseTest {
         runCurrent()
 
         assertEquals(
-            listOf(ASSESSMENT_A, WidgetContent.Assessment(MarketStage.NEUTRAL, LocalDate.parse("2026-11-23"))),
+            listOf(ASSESSMENT_A, WidgetContent.Assessment(MarketStage.NEUTRAL, LocalDate.parse("2026-11-23"), MIDDLE_50, MIDDLE_50)),
             states.contents(),
         )
     }
@@ -389,5 +398,74 @@ class ObserveWidgetStateUseCaseTest {
         )
         assertEquals(listOf(ASSESSMENT_A), states.contents().distinct())
         assertEquals(0, f.fetchCount)
+    }
+
+    // 매매 판단 (위젯 버전업-001)
+
+    private val bufferAssessment = WidgetContent.Assessment(
+        MarketStage.BULL,
+        LocalDate.parse("2026-11-23"),
+        MIDDLE_50,
+        WidgetValuation(35, ValuationStage.LOW),
+    )
+
+    private fun WidgetTestFixture.useBuffer() {
+        rulesRepository.rules.value = BUFFER_RULES
+        repository.setStored(bufferData(), now.minusSeconds(3600))
+    }
+
+    @Test
+    fun `R-31 기본 상황이면 장세, 기준 날짜, 매매 판단 둘의 점수와 표시 단계를 옮긴다`() = runTest {
+        assertEquals(
+            WidgetState(
+                WidgetContent.Assessment(MarketStage.BULL, LocalDate.parse("2026-11-23"), MIDDLE_50, MIDDLE_50),
+                ENABLED,
+            ),
+            firstWith(fixture()),
+        )
+    }
+
+    @Test
+    fun `R-31 완충 데이터면 금리 부담만 35 LOW이고 주가 위치와 바뀌어 실리지 않는다`() = runTest {
+        val f = fixture().apply { useBuffer() }
+        assertEquals(bufferAssessment, firstWith(f).content)
+    }
+
+    @Test
+    fun `R-46 점수로 정한 단계가 아니라 표시 단계를 싣는다`() = runTest {
+        val f = fixture().apply { useBuffer() }
+        assertEquals(WidgetValuation(35, ValuationStage.LOW), (firstWith(f).content as WidgetContent.Assessment).rateBurden)
+
+        // 같은 판정의 점수로 정한 단계는 MIDDLE이다.
+        val mood = ObserveMoodUseCase(
+            f.rulesRepository,
+            f.repository,
+            MoodCalculator(ValuationCalculator()),
+            UnconfinedTestDispatcher(testScheduler),
+        )().first()!!
+        assertEquals(ValuationStage.MIDDLE, mood.valuation.rateBurden.scoredStage)
+        assertEquals(ValuationStage.LOW, mood.valuation.rateBurden.displayedStage)
+    }
+
+    @Test
+    fun `R-17 R-30 매매 판단만 바뀌어도 새 상태가 이어서 나온다`() = runTest {
+        val f = fixture().apply {
+            rulesRepository.rules.value = BUFFER_RULES
+            start()
+        }
+        val states = collect(f)
+        runCurrent()
+
+        f.repository.setStored(bufferData(), f.now.minusSeconds(3600))
+        runCurrent()
+
+        assertEquals(listOf(ASSESSMENT_A, bufferAssessment), states.contents())
+    }
+
+    @Test
+    fun `R-31 실질금리가 통째로 빠지면 장세의 값이 있어도 받지 못함`() = runTest {
+        val f = fixture()
+        f.repository.setStored(dataA().removeSeries(MoodTestData.REAL_YIELD), f.now.minusSeconds(3600))
+        assertEquals(WidgetState(NotReceived, ENABLED), firstWith(f))
     }
 }

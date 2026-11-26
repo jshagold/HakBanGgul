@@ -320,4 +320,60 @@ class WidgetRefreshCoordinatorTest {
         runCurrent()
         assertFalse(f.coordinator.isManualRefreshing.value)
     }
+
+    // R-35, R-47 APP_UPDATED의 조건
+
+    @Test
+    fun `R-47 성공한 지 1시간이면 APP_UPDATED로 받지 않는다`() = runTest {
+        val f = fixture().apply { start() }
+        requestAndWait(f, WidgetRefreshTrigger.APP_UPDATED)
+        assertEquals(0, f.fetchCount)
+    }
+
+    @Test
+    fun `R-47 성공한 지 6시간 1분이면 APP_UPDATED로 받는다`() = runTest {
+        val f = fixture()
+        f.repository.setStored(dataA(), f.now.minus(Duration.ofHours(6).plusMinutes(1)))
+        f.start()
+        requestAndWait(f, WidgetRefreshTrigger.APP_UPDATED)
+        assertEquals(2, f.fetchCount)
+    }
+
+    @Test
+    fun `R-47 받아 둔 값이 없으면 APP_UPDATED로 받는다`() = runTest {
+        val f = fixture().apply { setStoredNone(); start() }
+        requestAndWait(f, WidgetRefreshTrigger.APP_UPDATED)
+        assertEquals(2, f.fetchCount)
+    }
+
+    @Test
+    fun `R-35 FRED의 키가 없으면 APP_UPDATED로 받지 않는다`() = runTest {
+        val f = fixture().apply {
+            setKeys(AVAILABLE, MISSING)
+            setStoredNone()
+            start()
+        }
+        requestAndWait(f, WidgetRefreshTrigger.APP_UPDATED)
+        assertEquals(0, f.fetchCount)
+    }
+
+    // R-47 눌러 받는 중을 바꾸지 않음
+
+    @Test
+    fun `R-47 APP_UPDATED는 눌러 받는 중을 바꾸지 않고 받기가 끝난 뒤 돌아온다`() = runTest {
+        val f = fixture().apply { setStoredNone(); start() }
+        val seen = mutableListOf<Boolean>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { f.coordinator.isManualRefreshing.toList(seen) }
+
+        val wait = f.holdFetch()
+        val job = launch { f.coordinator.request(WidgetRefreshTrigger.APP_UPDATED) }
+        runCurrent()
+        assertFalse(job.isCompleted)
+
+        wait.complete(Unit)
+        advanceUntilIdle()
+
+        assertTrue(job.isCompleted)
+        assertTrue(seen.none { it })
+    }
 }

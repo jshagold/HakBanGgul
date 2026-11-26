@@ -17,6 +17,10 @@ import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
+import androidx.glance.layout.Column
+import androidx.glance.layout.Row
+import androidx.glance.layout.Spacer
+import androidx.glance.layout.width
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
@@ -33,10 +37,11 @@ import com.hak.hakbanggul.core.ui.theme.AppDimens
 import com.hak.hakbanggul.core.ui.theme.AppTypography
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshButton
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
+import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 import androidx.compose.ui.text.TextStyle as ComposeTextStyle
 import androidx.compose.ui.text.font.FontWeight as ComposeFontWeight
 
-// 작은 위젯과 큰 위젯이 함께 쓰는 조각: 카드 바탕, 버튼 자리, 글 한 줄.
+// 작은 위젯과 큰 위젯이 함께 쓰는 조각: 카드 바탕, 버튼 자리, 글 한 줄, 매매 판단 줄.
 // 색과 크기는 공용 테마의 값을 꺼내 Glance의 것으로 바꿔 쓴다. 색은 고정 값이라 기기가 어두운 화면이어도 바뀌지 않는다.
 internal object WidgetTheme {
     val colors = AppColors()
@@ -115,14 +120,49 @@ private fun RefreshButtonSlot(state: WidgetRefreshButton, slot: RefreshSlotSpec)
     }
 }
 
-// 글 한 줄. keepWords가 참이면 띄어쓰기에서만 줄을 바꾼다.
+// 글 한 줄. keepWords가 참이면 띄어쓰기에서만 줄을 바꾼다. maxLines를 주면 그 줄 수를 넘지 않는다.
 @Composable
-internal fun WidgetText(text: UiText, style: ComposeTextStyle, color: Color, keepWords: Boolean = false) {
+internal fun WidgetText(
+    text: UiText,
+    style: ComposeTextStyle,
+    color: Color,
+    keepWords: Boolean = false,
+    maxLines: Int = Int.MAX_VALUE,
+) {
     val resolved = text.asString(LocalContext.current)
     Text(
         text = if (keepWords) keepWordsTogether(resolved) else resolved,
         style = style.toGlance(color),
+        maxLines = maxLines,
     )
+}
+
+// 매매 판단 두 줄 묶음(위에서 주가 위치, 금리 부담). 줄 사이는 띄우지 않는다.
+// 큰 위젯은 이름과 점수·단계, 작은 위젯은 줄인 이름과 단계 이름을 쓴다.
+@Composable
+internal fun WidgetValuationLines(stage: WidgetMain.Stage, short: Boolean) {
+    Column {
+        listOf(stage.pricePosition, stage.rateBurden).forEach { line ->
+            WidgetValuationRow(
+                name = if (short) line.shortName else line.name,
+                value = if (short) line.stageName else line.scoreText,
+                stage = line.stage,
+            )
+        }
+    }
+}
+
+// 매매 판단 줄 하나: 이름 쪽(보통 굵기, 회색)과 단계 쪽(굵게, 단계의 색)을 가로로 놓고 사이를 띄운다.
+// Glance의 글 하나에는 크기·굵기·색을 하나만 줄 수 있어 두 글로 그린다. 띄어쓰기를 글 끝에 넣어 띄우지 않는다.
+// 넘쳐도 줄을 바꾸지 않는다.
+@Composable
+private fun WidgetValuationRow(name: UiText, value: UiText, stage: ValuationStage) {
+    val type = WidgetTheme.typography
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WidgetText(name, type.widgetValuationName, WidgetTheme.colors.textMuted, maxLines = 1)
+        Spacer(GlanceModifier.width(WidgetTheme.dimens.widgetValuationNameGap))
+        WidgetText(value, type.widgetValuationStage, valuationStageColor(stage), maxLines = 1)
+    }
 }
 
 // 단계 이름의 색. 앱의 시장 분위기 화면과 같은 테마 값이다.
@@ -131,6 +171,13 @@ internal fun stageColor(stage: MarketStage): Color = when (stage) {
     MarketStage.NEUTRAL -> WidgetTheme.colors.stageNeutral
     MarketStage.WEAK -> WidgetTheme.colors.stageWeak
     MarketStage.BEAR -> WidgetTheme.colors.stageBear
+}
+
+// 매매 판단 단계의 색. 앱의 주가 위치·금리 부담 카드와 같은 테마 값이다(두 카드가 같다).
+internal fun valuationStageColor(stage: ValuationStage): Color = when (stage) {
+    ValuationStage.LOW -> WidgetTheme.colors.valuationLow
+    ValuationStage.MIDDLE -> WidgetTheme.colors.valuationMiddle
+    ValuationStage.HIGH -> WidgetTheme.colors.valuationHigh
 }
 
 // Compose의 글자 모양을 Glance의 것으로 바꾼다. 크기와 굵기만 옮긴다(줄 높이는 Glance에서 정할 수 없다).
