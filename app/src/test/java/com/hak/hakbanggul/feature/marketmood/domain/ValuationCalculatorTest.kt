@@ -85,7 +85,7 @@ class ValuationCalculatorTest {
         assertEquals(15.0 / 13.5 - 1, result.shortDeviation, 1e-9)
         assertEquals(0.125, result.longDeviation, 1e-9)
         assertEquals(100, result.score)
-        // 기준 날짜(여섯째 날)보다 threeMonthDays(2)개 앞의 날은 넷째 날(13)이다. (SPEC-ISSUE: 지시의 15 ÷ 11 - 1과 다름)
+        // 기준 날짜(여섯째 날)보다 threeMonthDays(2)개 앞의 날은 넷째 날(13)이다.
         assertEquals(15.0 / 13.0 - 1, result.threeMonthReturn, 1e-9)
     }
 
