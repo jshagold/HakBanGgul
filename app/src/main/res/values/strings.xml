@@ -106,11 +106,9 @@
     <string name="widget_open_app">눌러서 앱 열기</string>
     <string name="widget_refreshing">받는 중</string>
     <string name="widget_preview_as_of">11월 23일 종가</string>
-    <string name="valuation_title">지난 5년과 비교하면</string>
-    <string name="valuation_description">0은 지난 5년 중 가장 낮은 쪽, 100은 가장 높은 쪽</string>
-    <string name="mood_evidence_title">장세의 근거</string>
+    <string name="valuation_title">지난 %1$s과 비교하면</string>
+    <string name="valuation_description">0은 지난 %1$s 중 가장 낮은 쪽, 100은 가장 높은 쪽</string>
     <string name="price_position_name">주가 위치</string>
-    <string name="price_position_subtitle">전체 시장 SPY</string>
     <string name="rate_burden_name">금리 부담</string>
     <string name="rate_burden_subtitle">실질금리 %1$s</string>
     <string name="valuation_score">%1$d · %2$s</string>
@@ -121,8 +119,8 @@
     <string name="valuation_rate_high">높음</string>
     <string name="valuation_notice_low">점수는 %1$d이지만 아직 \'%2$s\'입니다. %3$d 이상이 되어야 보통으로 바뀝니다.</string>
     <string name="valuation_notice_high">점수는 %1$d이지만 아직 \'%2$s\'입니다. %3$d 이하가 되어야 보통으로 바뀝니다.</string>
-    <string name="price_evidence_average">200일 평균보다 %1$s · 3년 평균보다 %2$s</string>
-    <string name="price_evidence_drawdown">고점보다 %1$s · 3개월 전보다 %2$s</string>
+    <string name="price_evidence_average">%1$d일 평균보다 %2$s · %3$s 평균보다 %4$s</string>
+    <string name="price_evidence_drawdown">고점보다 %1$s · %2$s 전보다 %3$s</string>
     <string name="rate_evidence_year_change">1년 전보다 %1$s · %2$s</string>
     <string name="rate_evidence_rising">오르는 중</string>
     <string name="rate_evidence_falling">내리는 중</string>
@@ -134,4 +132,55 @@
     <string name="widget_rate_burden_short">금리</string>
     <string name="widget_preview_price_position_score">74 · 비싼 편</string>
     <string name="widget_preview_rate_burden_score">98 · 높음</string>
+
+    <!-- 시장 분위기: 기간의 이름 -->
+    <string name="period_months">%1$d개월</string>
+    <string name="period_years">%1$d년</string>
+
+    <!-- 시장 분위기: 대상의 이름 -->
+    <string name="target_broad_market">전체 시장</string>
+    <string name="target_nasdaq_100">나스닥 100</string>
+    <string name="target_semiconductors">반도체</string>
+    <string name="target_technology">기술</string>
+    <string name="target_financials">금융</string>
+    <string name="target_energy">에너지</string>
+    <string name="target_health_care">헬스케어</string>
+    <string name="target_consumer_discretionary">임의소비재</string>
+    <string name="target_consumer_staples">필수소비재</string>
+    <string name="target_industrials">산업재</string>
+    <string name="target_materials">소재</string>
+    <string name="target_utilities">유틸리티</string>
+    <string name="target_real_estate">부동산</string>
+    <string name="target_communication_services">커뮤니케이션</string>
+    <string name="regime_broad_market">전체 장세</string>
+    <string name="regime_sector">%1$s 장세</string>
+    <string name="target_with_symbol">%1$s %2$s</string>
+    <string name="regime_card_title">%1$s · 최근 %2$s</string>
+    <string name="stock_group_suffix">%1$s · 비중 %2$d%%</string>
+
+    <!-- 시장 분위기: 상세 화면 -->
+    <string name="link_evidence_and_periods">근거와 다른 기간</string>
+    <string name="evidence_title">근거</string>
+    <string name="evidence_basis">최근 %1$s 기준</string>
+    <string name="other_periods_title">다른 기간으로 보면</string>
+    <string name="other_periods_description">기간마다 따로 낸 판정입니다. 위의 판정이 메인입니다.</string>
+    <string name="evidence_above_average">%1$d일 평균보다 %2$s</string>
+    <string name="evidence_from_high">최근 %1$s 고점보다 %2$s</string>
+    <string name="evidence_average_slope">%1$d일 평균이 %2$d일 전보다 %3$s</string>
+    <string name="regime_period_label">최근 %1$s 흐름</string>
+    <string name="regime_period_evidence">%1$d일 평균보다 %2$s · %3$s 고점보다 %4$s</string>
+    <string name="valuation_period_label">지난 %1$s과 비교</string>
+    <string name="period_unavailable">아직 없음</string>
+    <string name="valuation_period_unavailable">받아 둔 값이 모자라 지난 %1$s과 견줄 수 없습니다. 값이 쌓이면 나옵니다.</string>
+    <string name="regime_period_unavailable">받아 둔 값이 모자라 최근 %1$s 흐름을 낼 수 없습니다. 값이 쌓이면 나옵니다.</string>
+
+    <!-- 시장 분위기: 섹터 목록 -->
+    <string name="sectors_title">섹터별</string>
+    <string name="sectors_description">누르면 그 섹터의 화면이 열립니다</string>
+    <string name="sectors_header_name">섹터</string>
+    <string name="sectors_header_regime">장세\n%1$s</string>
+    <string name="sectors_header_price">주가 위치\n%1$s</string>
+    <string name="sector_loading">받는 중</string>
+    <string name="sector_failed">받지 못함</string>
+    <string name="sector_as_of">%1$d월 %2$d일 종가 기준</string>
 </resources>

@@ -1,11 +1,24 @@
 package com.hak.hakbanggul.feature.marketmood.presentation
 
+import com.hak.hakbanggul.R
+import com.hak.hakbanggul.core.ui.UiText
+import com.hak.hakbanggul.feature.marketmood.domain.PeriodLength
+import com.hak.hakbanggul.feature.marketmood.domain.PeriodUnit
 import java.math.BigDecimal
 import java.math.RoundingMode
 
 // 숫자를 화면의 글로 바꾼다. Android에 기대지 않는다.
 // 반올림은 값의 십진 표기를 기준으로 한 사사오입이다(0.005는 0.01). 음수 부호는 하이픈, 0에는 부호를 붙이지 않는다.
 class MoodTextFormatter {
+
+    // 기간의 이름. "3개월", "2년"
+    fun periodName(length: PeriodLength): UiText = UiText(
+        when (length.unit) {
+            PeriodUnit.MONTHS -> R.string.period_months
+            PeriodUnit.YEARS -> R.string.period_years
+        },
+        listOf(length.amount),
+    )
 
     // 항목 점수: 소수 한 자리. +1.0, 0.0, -0.5
     fun itemScore(score: Double): String = signed(round(score, 1))

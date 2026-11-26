@@ -1,5 +1,9 @@
 package com.hak.hakbanggul.feature.marketmood.presentation
 
+import com.hak.hakbanggul.R
+import com.hak.hakbanggul.core.ui.UiText
+import com.hak.hakbanggul.feature.marketmood.domain.PeriodLength
+import com.hak.hakbanggul.feature.marketmood.domain.PeriodUnit
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -88,5 +92,14 @@ class MoodTextFormatterTest {
     fun `R-69 targetPercent`() {
         assertEquals("2", formatter.targetPercent(0.02))
         assertEquals("2.5", formatter.targetPercent(0.025))
+    }
+
+    // R-107 기간의 이름
+
+    @Test
+    fun `R-107 기간의 이름은 개월과 년`() {
+        assertEquals(UiText(R.string.period_months, listOf(3)), formatter.periodName(PeriodLength(3, PeriodUnit.MONTHS)))
+        assertEquals(UiText(R.string.period_years, listOf(2)), formatter.periodName(PeriodLength(2, PeriodUnit.YEARS)))
+        assertEquals(UiText(R.string.period_months, listOf(18)), formatter.periodName(PeriodLength(18, PeriodUnit.MONTHS)))
     }
 }

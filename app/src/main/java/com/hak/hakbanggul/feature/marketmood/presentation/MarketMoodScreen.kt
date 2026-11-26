@@ -294,12 +294,10 @@ private fun Banner(banner: BannerUiState, onRetryClick: () -> Unit) {
 
 @Composable
 private fun AssessmentBody(mood: MoodUiState) {
-    AssessmentCard(mood)
-    SectionTitle(stringResource(R.string.valuation_title), stringResource(R.string.valuation_description))
-    ValuationCard(stringResource(R.string.price_position_name), mood.pricePosition)
-    ValuationCard(stringResource(R.string.rate_burden_name), mood.rateBurden)
-    SectionTitle(stringResource(R.string.mood_evidence_title), null)
-    mood.groups.forEach { GroupCard(it) }
+    AssessmentCard(mood.regime)
+    SectionTitle(mood.valuationTitle.asString(), mood.valuationDescription.asString())
+    ValuationCard(mood.pricePosition)
+    ValuationCard(mood.rateBurden)
     Footer()
 }
 
@@ -326,7 +324,7 @@ private fun SectionTitle(title: String, description: String?) {
 
 // 매매 판단 카드: 머리(이름과 그 아래 글, 점수와 단계), 눈금, 안내 줄(있을 때만), 근거 줄
 @Composable
-private fun ValuationCard(name: String, card: ValuationCardUiState) {
+private fun ValuationCard(card: ValuationCardUiState) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
     val typography = HakBanGgulTheme.typography
@@ -337,7 +335,7 @@ private fun ValuationCard(name: String, card: ValuationCardUiState) {
             horizontalArrangement = Arrangement.spacedBy(dimens.rowContentGap),
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
-                Text(name, style = typography.groupName, color = colors.text)
+                Text(card.name.asString(), style = typography.groupName, color = colors.text)
                 Text(card.subtitle.asString(), style = typography.caption, color = colors.textMuted)
             }
             Text(
@@ -359,15 +357,17 @@ private fun ValuationCard(name: String, card: ValuationCardUiState) {
 
         card.notice?.let { Notice(it.asString()) }
 
-        val borderColor = colors.border
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .drawBehind { drawRect(borderColor, size = Size(size.width, dimens.divider.toPx())) }
-                .padding(top = dimens.valuationEvidencePaddingTop),
-            verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
-        ) {
-            card.evidence.forEach { Text(it.asString(), style = typography.caption, color = colors.textMuted) }
+        if (card.evidence.isNotEmpty()) {
+            val borderColor = colors.border
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawBehind { drawRect(borderColor, size = Size(size.width, dimens.divider.toPx())) }
+                    .padding(top = dimens.valuationEvidencePaddingTop),
+                verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
+            ) {
+                card.evidence.forEach { Text(it.asString(), style = typography.caption, color = colors.textMuted) }
+            }
         }
     }
 }
@@ -389,7 +389,7 @@ private fun Notice(text: String) {
 }
 
 @Composable
-private fun AssessmentCard(mood: MoodUiState) {
+private fun AssessmentCard(mood: RegimeCardUiState) {
     val colors = HakBanGgulTheme.colors
     val dimens = HakBanGgulTheme.dimens
     val typography = HakBanGgulTheme.typography
@@ -401,7 +401,7 @@ private fun AssessmentCard(mood: MoodUiState) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    stringResource(R.string.mood_now),
+                    mood.title.asString(),
                     style = typography.small,
                     color = colors.textMuted,
                     modifier = Modifier.weight(1f).alignByBaseline(),
@@ -773,11 +773,6 @@ private fun stageText(stage: MarketStage) = UiText(
     },
 )
 
-private fun previewIndicator(name: Int, suffix: Int?, evidence: UiText, score: String, tone: ScoreTone) =
-    IndicatorUiState(UiText(name), suffix?.let { UiText(it) }, evidence, score, tone)
-
-private fun ratio(text: String) = UiText(R.string.evidence_value, listOf(text))
-
 private fun previewMood(
     stage: MarketStage,
     computed: MarketStage = stage,
@@ -785,58 +780,35 @@ private fun previewMood(
     compositeTone: ScoreTone,
     gauge: Float,
     pending: UiText? = null,
-    stockScore: String = "+0.50",
-    stockTone: ScoreTone = ScoreTone.POSITIVE,
+    @Suppress("UNUSED_PARAMETER") stockScore: String = "+0.50",
+    @Suppress("UNUSED_PARAMETER") stockTone: ScoreTone = ScoreTone.POSITIVE,
     month: Int = 11,
     day: Int = 23,
     pricePosition: ValuationCardUiState = previewPriceCard(),
     rateBurden: ValuationCardUiState = previewRateCard(),
 ) = MoodUiState(
-    stage = stage,
-    stageName = stageText(stage),
-    asOfText = UiText(R.string.mood_as_of, listOf(month, day)),
-    compositeScoreText = composite,
-    compositeTone = compositeTone,
-    computedStageName = stageText(computed),
-    gaugePosition = gauge,
-    pendingNotice = pending,
-    groups = listOf(
-        GroupUiState(
-            name = UiText(R.string.group_stocks),
-            weightText = UiText(R.string.group_weight, listOf(70)),
-            scoreText = stockScore,
-            scoreTone = stockTone,
-            indicators = listOf(
-                previewIndicator(R.string.indicator_above_average, null, ratio("+4.1%"), "+1.0", ScoreTone.POSITIVE),
-                previewIndicator(R.string.indicator_from_high, null, ratio("-3.2%"), "+1.0", ScoreTone.POSITIVE),
-                previewIndicator(R.string.indicator_average_slope, null, ratio("-0.4%"), "-1.0", ScoreTone.NEGATIVE),
-            ),
-        ),
-        GroupUiState(
-            name = UiText(R.string.group_bond_signals),
-            weightText = UiText(R.string.group_weight, listOf(30)),
-            scoreText = "+0.50",
-            scoreTone = ScoreTone.POSITIVE,
-            indicators = listOf(
-                previewIndicator(
-                    R.string.indicator_yield_curve,
-                    R.string.indicator_yield_curve_suffix,
-                    UiText(R.string.evidence_value, listOf("+0.29%p")),
-                    "0.0",
-                    ScoreTone.ZERO,
-                ),
-                previewIndicator(
-                    R.string.indicator_high_yield_spread,
-                    null,
-                    UiText(R.string.evidence_value_with_date, listOf("3.76%", 11, 20)),
-                    "+1.0",
-                    ScoreTone.POSITIVE,
-                ),
-            ),
-        ),
+    regime = RegimeCardUiState(
+        title = UiText(R.string.regime_card_title, listOf(UiText(R.string.regime_broad_market), UiText(R.string.period_months, listOf(3)))),
+        asOfText = UiText(R.string.mood_as_of, listOf(month, day)),
+        stage = stage,
+        stageName = stageText(stage),
+        compositeScoreText = composite,
+        compositeTone = compositeTone,
+        computedStageName = stageText(computed),
+        gaugePosition = gauge,
+        pendingNotice = pending,
+        showLink = true,
     ),
+    valuationTitle = UiText(R.string.valuation_title, listOf(UiText(R.string.period_years, listOf(2)))),
+    valuationDescription = UiText(R.string.valuation_description, listOf(UiText(R.string.period_years, listOf(2)))),
     pricePosition = pricePosition,
     rateBurden = rateBurden,
+    sectorHeader = SectorHeaderUiState(
+        UiText(R.string.sectors_header_name),
+        UiText(R.string.sectors_header_regime, listOf(UiText(R.string.period_months, listOf(3)))),
+        UiText(R.string.sectors_header_price, listOf(UiText(R.string.period_years, listOf(2)))),
+    ),
+    sectors = emptyList(),
 )
 
 private val priceStageNames = listOf(R.string.valuation_price_low, R.string.valuation_middle, R.string.valuation_price_high)
@@ -844,18 +816,21 @@ private val rateStageNames = listOf(R.string.valuation_rate_low, R.string.valuat
 
 private fun previewCard(
     names: List<Int>,
+    name: Int,
     subtitle: UiText,
     score: Int,
     stage: ValuationStage,
     notice: UiText?,
     evidence: List<UiText>,
 ) = ValuationCardUiState(
+    name = UiText(name),
     subtitle = subtitle,
     scoreText = UiText(R.string.valuation_score, listOf(score, UiText(names[stage.ordinal]))),
     stage = stage,
     gauge = ValuationGaugeUiState(listOf(0.31f, 0.38f, 0.31f), names.map { UiText(it) }, score / 100f),
     notice = notice,
     evidence = evidence,
+    showLink = true,
 )
 
 private fun previewPriceCard(
@@ -868,13 +843,14 @@ private fun previewPriceCard(
     notice: UiText? = null,
 ) = previewCard(
     names = priceStageNames,
-    subtitle = UiText(R.string.price_position_subtitle),
+    name = R.string.price_position_name,
+    subtitle = UiText(R.string.target_with_symbol, listOf(UiText(R.string.target_broad_market), "SPY")),
     score = score,
     stage = stage,
     notice = notice,
     evidence = listOf(
-        UiText(R.string.price_evidence_average, listOf(short, long)),
-        UiText(R.string.price_evidence_drawdown, listOf(drawdown, threeMonth)),
+        UiText(R.string.price_evidence_average, listOf(200, short, UiText(R.string.period_years, listOf(3)), long)),
+        UiText(R.string.price_evidence_drawdown, listOf(drawdown, UiText(R.string.period_months, listOf(3)), threeMonth)),
     ),
 )
 
@@ -890,6 +866,7 @@ private fun previewRateCard(
     notice: UiText? = null,
 ) = previewCard(
     names = rateStageNames,
+    name = R.string.rate_burden_name,
     subtitle = UiText(R.string.rate_burden_subtitle, listOf(realYield)),
     score = score,
     stage = stage,
