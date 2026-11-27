@@ -38,6 +38,10 @@ private fun SectorContent(
     onOpenRegime: (String) -> Unit,
     onOpenPricePosition: (String) -> Unit,
 ) {
+    if (state is DetailUiState.Calculating) {
+        CalculatingDetailScaffold(state, onBack)
+        return
+    }
     val content = (state as? DetailUiState.Shown)?.content
     DetailScaffold(
         title = content?.name?.asString().orEmpty(),
@@ -71,6 +75,17 @@ private fun SectorDetailPreview() = HakBanGgulTheme {
                 pricePosition = priceCard(subtitle = withSymbol(R.string.target_semiconductors, "SMH"), score = 15),
             ),
         ),
+        onBack = {},
+        onOpenRegime = {},
+        onOpenPricePosition = {},
+    )
+}
+
+@Preview(name = "섹터 화면 · 판정을 계산하는 중 (반도체 SMH)", widthDp = 390, heightDp = 844)
+@Composable
+private fun SectorCalculatingPreview() = HakBanGgulTheme {
+    SectorContent(
+        DetailUiState.Calculating(UiText(R.string.target_semiconductors), UiText(R.string.detail_target_symbol, listOf("SMH"))),
         onBack = {},
         onOpenRegime = {},
         onOpenPricePosition = {},

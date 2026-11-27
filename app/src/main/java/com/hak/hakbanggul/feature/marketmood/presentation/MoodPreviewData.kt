@@ -161,6 +161,26 @@ internal object MoodPreviewData {
             )
         }
 
+    // 시안 "새 값을 받는 중, 섹터 7개는 1분쯤 뒤": refreshingFrom부터의 줄은 받아 둔 값을 보이며 받는 중이다.
+    // 받는 중인 줄은 기준 날짜가 다른 날이라 "받는 중 · 11월 21일 값"이고, 마지막 줄(XLC)만 기준 날짜가 같은 "받는 중"이다.
+    fun refreshingSectorRows(refreshingFrom: Int = 6) =
+        sectors.mapIndexed { index, s ->
+            val refreshing = index >= refreshingFrom
+            SectorRowUiState(
+                targetId = s.id,
+                name = UiText(s.nameRes),
+                symbol = s.symbol,
+                asOfText = null,
+                refreshingText = when {
+                    !refreshing -> null
+                    index == sectors.lastIndex -> UiText(R.string.sector_loading)
+                    else -> UiText(R.string.sector_refreshing_with_date, listOf(11, 21))
+                },
+                content = SectorRowContent.Values(s.stage, stageText(s.stage), s.valuation, valuationScore(true, s.score, s.valuation)),
+                clickable = true,
+            )
+        }
+
     val sectorHeader = SectorHeaderUiState(
         UiText(R.string.sectors_header_name),
         UiText(R.string.sectors_header_regime, listOf(months(3))),

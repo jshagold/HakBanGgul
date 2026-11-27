@@ -132,10 +132,13 @@ private fun MarketMoodContent(
                 .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)),
             verticalArrangement = Arrangement.spacedBy(dimens.cardGap),
         ) {
+            // 띠는 많아야 하나다(상태가 그렇게 온다).
+            uiState.waitingBanner?.let { WaitingBanner(it) }
             uiState.banner?.let { Banner(it, onRetryClick) }
             when (val body = uiState.body) {
                 MoodBody.Undecided -> Unit
-                MoodBody.Calculating -> Unit
+                // 계산 중 카드만 그린다(맨 아래 안내를 두지 않는다).
+                MoodBody.Calculating -> CalculatingCard()
                 is MoodBody.KeyGuide -> KeyGuideCard(body.rows, onOpenSettings)
                 is MoodBody.Assessment -> AssessmentBody(body.mood, onOpenRegime, onOpenPricePosition, onOpenRateBurden, onOpenSector)
                 MoodBody.Loading -> LoadingCard()
@@ -261,6 +264,24 @@ private fun Banner(banner: BannerUiState, onRetryClick: () -> Unit) {
     }
 }
 
+// 기다림 띠: 두 줄(첫 줄 굵게), 버튼 없음
+@Composable
+private fun WaitingBanner(banner: WaitingBannerUiState) {
+    val colors = HakBanGgulTheme.colors
+    val dimens = HakBanGgulTheme.dimens
+    val typography = HakBanGgulTheme.typography
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.waitingBackground, HakBanGgulTheme.shapes.banner)
+            .padding(horizontal = dimens.bannerPaddingStart, vertical = dimens.bannerPaddingVertical),
+        verticalArrangement = Arrangement.spacedBy(dimens.nameGap),
+    ) {
+        Text(banner.title.asString(), style = typography.smallBold, color = colors.waitingText)
+        Text(banner.message.asString(), style = typography.captionBanner, color = colors.waitingText)
+    }
+}
+
 // 판정: 전체 장세 카드, 매매 판단 제목과 두 카드, 섹터별 제목과 섹터 목록, 맨 아래 안내
 
 @Composable
@@ -372,7 +393,8 @@ private fun assessmentState(
     mood: MoodUiState,
     banner: BannerUiState? = null,
     refreshButton: RefreshButtonState = RefreshButtonState.ENABLED,
-) = MarketMoodUiState(refreshButton, banner, null, MoodBody.Assessment(mood))
+    waitingBanner: WaitingBannerUiState? = null,
+) = MarketMoodUiState(refreshButton, banner, waitingBanner, MoodBody.Assessment(mood))
 
 @Preview(name = "시장 분위기 · 둘째 묶음: 첫 화면 (전체 장세, 섹터별)", widthDp = 390, heightDp = 1900)
 @Composable
@@ -488,4 +510,18 @@ private fun LoadingPreview() = Preview(MarketMoodUiState(RefreshButtonState.REFR
 @Composable
 private fun FailedPreview() = Preview(
     MarketMoodUiState(RefreshButtonState.ENABLED, null, null, MoodBody.Failed(UiText(R.string.mood_failed_no_connection))),
+)
+
+@Preview(name = "첫 화면 · 받아 둔 값으로 판정을 계산하는 중 (앱을 켤 때)", widthDp = 390, heightDp = 844)
+@Composable
+private fun CalculatingPreview() = Preview(MarketMoodUiState(RefreshButtonState.ENABLED, null, null, MoodBody.Calculating))
+
+@Preview(name = "첫 화면 · 새 값을 받는 중, 섹터 7개는 1분쯤 뒤 (받아 둔 값이 있는 섹터를 다시 받는 중)", widthDp = 390, heightDp = 1960)
+@Composable
+private fun SectorsRefreshingPreview() = Preview(
+    assessmentState(
+        MoodPreviewData.mood(sectors = MoodPreviewData.refreshingSectorRows()),
+        refreshButton = RefreshButtonState.REFRESHING,
+        waitingBanner = WaitingBannerUiState(UiText(R.string.waiting_banner_title, listOf(7)), UiText(R.string.waiting_banner_message)),
+    ),
 )

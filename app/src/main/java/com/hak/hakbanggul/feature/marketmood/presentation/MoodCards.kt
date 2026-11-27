@@ -366,6 +366,24 @@ private fun SectorRow(row: SectorRowUiState, onClick: (String) -> Unit) {
                 color = colors.text,
             )
             row.asOfText?.let { Text(it.asString(), style = typography.sectionDescription, color = colors.textMuted) }
+            // 받는 중이면 이름 줄 아래에 작은 진행 표시와 그 글을 한 줄로 둔다(기준 날짜 줄과 함께 오지 않는다).
+            row.refreshingText?.let { text ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(dimens.progressSectorTextGap),
+                ) {
+                    Box(modifier = Modifier.size(dimens.progressSectorSlot), contentAlignment = Alignment.Center) {
+                        Spinner(dimens.progressSector, dimens.progressSectorStroke)
+                    }
+                    Text(
+                        text.asString(),
+                        style = typography.sectionDescription,
+                        color = colors.textMuted,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
         }
         when (val content = row.content) {
             is SectorRowContent.Values -> {
@@ -677,6 +695,28 @@ internal fun IconButtonBox(onClick: () -> Unit, enabled: Boolean, content: @Comp
         contentAlignment = Alignment.Center,
     ) {
         content()
+    }
+}
+
+// 계산 중 카드: 받는 중 카드와 같은 모양(바탕, 테두리, 모서리, 안쪽 여백, 진행 표시)에 글 두 줄.
+// 첫 화면과 상세 화면이 함께 그린다.
+@Composable
+internal fun CalculatingCard() {
+    val colors = HakBanGgulTheme.colors
+    val dimens = HakBanGgulTheme.dimens
+    val typography = HakBanGgulTheme.typography
+    Row(
+        modifier = Modifier.fillMaxWidth().cardBackground().padding(dimens.cardPadding),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(dimens.progressTextGap),
+    ) {
+        Box(modifier = Modifier.size(dimens.progressCardSlot), contentAlignment = Alignment.Center) {
+            Spinner(dimens.progressCard, dimens.progressCardStroke)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(dimens.nameGap)) {
+            Text(stringResource(R.string.mood_calculating_title), style = typography.title, color = colors.text)
+            Text(stringResource(R.string.mood_calculating_message), style = typography.captionBanner, color = colors.textMuted)
+        }
     }
 }
 

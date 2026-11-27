@@ -7,6 +7,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hak.hakbanggul.R
+import com.hak.hakbanggul.core.ui.UiText
 import com.hak.hakbanggul.core.ui.asString
 import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
@@ -29,6 +30,10 @@ fun RegimeScreen(onBack: () -> Unit, onReturnToMain: () -> Unit, viewModel: Regi
 
 @Composable
 private fun RegimeContent(state: DetailUiState<RegimeDetailUiState>, onBack: () -> Unit) {
+    if (state is DetailUiState.Calculating) {
+        CalculatingDetailScaffold(state, onBack)
+        return
+    }
     val content = (state as? DetailUiState.Shown)?.content
     DetailScaffold(
         title = content?.title?.asString().orEmpty(),
@@ -172,3 +177,21 @@ private fun SectorRegimePreview() = Preview(
         ),
     ),
 )
+
+@Preview(name = "상세 화면 · 판정을 계산하는 중 (전체 장세 화면으로 그림)", widthDp = 390, heightDp = 844)
+@Composable
+private fun RegimeCalculatingPreview() = HakBanGgulTheme {
+    RegimeContent(DetailUiState.Calculating(UiText(R.string.regime_broad_market), null), onBack = {})
+}
+
+@Preview(name = "섹터의 장세 화면 · 판정을 계산하는 중 (반도체 SMH)", widthDp = 390, heightDp = 844)
+@Composable
+private fun SectorRegimeCalculatingPreview() = HakBanGgulTheme {
+    RegimeContent(
+        DetailUiState.Calculating(
+            UiText(R.string.regime_sector, listOf(UiText(R.string.target_semiconductors))),
+            UiText(R.string.detail_target_symbol, listOf("SMH")),
+        ),
+        onBack = {},
+    )
+}

@@ -31,6 +31,10 @@ fun RateBurdenScreen(onBack: () -> Unit, onReturnToMain: () -> Unit, viewModel: 
 
 @Composable
 private fun RateBurdenContent(state: DetailUiState<RateBurdenDetailUiState>, onBack: () -> Unit) {
+    if (state is DetailUiState.Calculating) {
+        CalculatingDetailScaffold(state, onBack)
+        return
+    }
     val content = (state as? DetailUiState.Shown)?.content
     DetailScaffold(
         title = stringResource(R.string.rate_burden_name),
@@ -94,3 +98,9 @@ private fun RateDetailRarePreview() = Preview(
         ),
     ),
 )
+
+@Preview(name = "금리 부담 화면 · 판정을 계산하는 중", widthDp = 390, heightDp = 844)
+@Composable
+private fun RateBurdenCalculatingPreview() = HakBanGgulTheme {
+    RateBurdenContent(DetailUiState.Calculating(UiText(R.string.rate_burden_name), null), onBack = {})
+}

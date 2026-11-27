@@ -26,6 +26,9 @@ data class AppColors(
     val warningText: Color = Color(0xFF9F1D14),
     // 안내 띠의 바탕
     val warningBackground: Color = Color(0xFFFCE9E6),
+    // 기다림 띠의 바탕과 글
+    val waitingBackground: Color = Color(0xFFE8EEF8),
+    val waitingText: Color = Color(0xFF1B418F),
     // 입력 칸의 오류 테두리
     val errorBorder: Color = Color(0xFFB3261E),
 

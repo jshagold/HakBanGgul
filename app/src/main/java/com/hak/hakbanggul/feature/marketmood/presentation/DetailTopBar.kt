@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import com.hak.hakbanggul.R
 import com.hak.hakbanggul.core.ui.AppIcons
+import com.hak.hakbanggul.core.ui.asString
 import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 
 // 상세 화면과 섹터 화면의 위쪽 줄: 뒤로 가기 단추, 이름(20 Bold)과 같은 줄에 대상(15 textMuted, 있을 때만).
@@ -106,6 +107,17 @@ internal fun DetailScaffold(
             )
         }
     }
+}
+
+// 계산 중인 상세 화면과 섹터 화면: 위쪽 줄에 그 이름과 대상, 본문 자리에는 계산 중 카드 하나만(맨 아래 안내 없음)
+@Composable
+internal fun CalculatingDetailScaffold(state: DetailUiState.Calculating, onBack: () -> Unit) {
+    DetailScaffold(
+        title = state.title.asString(),
+        target = state.target?.asString(),
+        onBack = onBack,
+        content = { CalculatingCard() },
+    )
 }
 
 // 상태가 BackToMain이 되면 onReturnToMain을 한 번 부른다.

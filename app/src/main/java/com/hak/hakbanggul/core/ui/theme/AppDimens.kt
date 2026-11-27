@@ -63,6 +63,11 @@ data class AppDimens(
     val progressCardStroke: Dp = 2.9.dp,
     // 받는 중 카드에서 고리를 가운데에 두는 칸. 시안의 그림 칸 크기다.
     val progressCardSlot: Dp = 28.dp,
+    // 섹터 줄의 작은 진행 표시: 칸(시안의 12px 그림), 고리의 바깥 지름과 굵기(viewBox 24, 반지름 9, 선 3을 줄인 값), 글과의 사이
+    val progressSectorSlot: Dp = 12.dp,
+    val progressSector: Dp = 10.5.dp,
+    val progressSectorStroke: Dp = 1.5.dp,
+    val progressSectorTextGap: Dp = 4.dp,
 
     // 안내 띠
     val bannerPaddingStart: Dp = 14.dp,

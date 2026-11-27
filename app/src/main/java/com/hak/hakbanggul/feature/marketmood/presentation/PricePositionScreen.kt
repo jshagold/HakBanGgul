@@ -7,6 +7,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hak.hakbanggul.R
+import com.hak.hakbanggul.core.ui.UiText
 import com.hak.hakbanggul.core.ui.asString
 import com.hak.hakbanggul.core.ui.theme.HakBanGgulTheme
 import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
@@ -31,6 +32,10 @@ fun PricePositionScreen(onBack: () -> Unit, onReturnToMain: () -> Unit, viewMode
 
 @Composable
 private fun PricePositionContent(state: DetailUiState<PricePositionDetailUiState>, onBack: () -> Unit) {
+    if (state is DetailUiState.Calculating) {
+        CalculatingDetailScaffold(state, onBack)
+        return
+    }
     val content = (state as? DetailUiState.Shown)?.content
     DetailScaffold(
         title = stringResource(R.string.price_position_name),
@@ -113,3 +118,15 @@ private fun SectorPricePreview() = Preview(
         ),
     ),
 )
+
+@Preview(name = "주가 위치 화면 · 판정을 계산하는 중", widthDp = 390, heightDp = 844)
+@Composable
+private fun PricePositionCalculatingPreview() = HakBanGgulTheme {
+    PricePositionContent(
+        DetailUiState.Calculating(
+            UiText(R.string.price_position_name),
+            UiText(R.string.target_with_symbol, listOf(UiText(R.string.target_broad_market), "SPY")),
+        ),
+        onBack = {},
+    )
+}
