@@ -69,6 +69,7 @@ class MarketDataRepositoryImplFetchTest {
 
     private object UnusedSyncStampDao : SyncStampDao {
         override fun observe(name: String): Flow<Long?> = emptyFlow()
+        override suspend fun getByPrefix(prefix: String): List<SyncStampEntity> = error("쓰지 않음")
         override suspend fun upsert(stamp: SyncStampEntity) = error("쓰지 않음")
         override suspend fun deleteAll() = error("쓰지 않음")
     }

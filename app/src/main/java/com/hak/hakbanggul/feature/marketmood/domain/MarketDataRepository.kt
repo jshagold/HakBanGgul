@@ -16,9 +16,13 @@ interface MarketDataRepository {
     // 요청 가운데 하나라도 받지 못하거나 읽지 못하면 그 출처 전체가 Failure이고, 앞 요청의 오류가 먼저다.
     suspend fun fetch(source: DataSource, requests: List<SeriesRequest>): FetchResult
 
-    // 넘긴 시리즈마다 받아 둔 값을 넘긴 값으로 통째로 바꾸고, succeededAt이 있으면 성공한 때로 적는다.
+    // 한 트랜잭션 안에서 넘긴 시리즈마다 받아 둔 값을 넘긴 값으로 통째로 바꾸고, 그 시리즈마다 마지막으로 받은 때를 fetchedAt으로 적는다.
     // 저장하지 못하면 IOException을 던진다.
-    suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?)
+    suspend fun save(values: Map<String, List<DailyValue>>, fetchedAt: Instant)
+
+    // 시리즈 ID마다 마지막으로 받은 때. 읽지 못하면 빈 맵이다. 예외를 던지지 않는다.
+    // 받아 둔 값(StoredMarketData)에 싣지 않는다. 실으면 받을 때마다 한 벌을 다시 계산한다.
+    suspend fun getFetchedAt(): Map<String, Instant>
 
     // 그 때를 돌려준다. 적힌 적이 없거나 읽지 못하면 null이다. 예외를 던지지 않는다.
     suspend fun getStamp(stamp: RefreshStamp): Instant?
@@ -28,10 +32,9 @@ interface MarketDataRepository {
     suspend fun saveStamp(stamp: RefreshStamp, at: Instant)
 }
 
-// 받아 둔 값. values의 키는 시리즈 ID이고 목록은 날짜 오름차순이다. lastSuccessAt은 마지막으로 받기에 성공한 때다.
+// 받아 둔 값. values의 키는 시리즈 ID이고 목록은 날짜 오름차순이다.
 data class StoredMarketData(
     val values: Map<String, List<DailyValue>>,
-    val lastSuccessAt: Instant?,
 )
 
 // 출처 하나의 받기 결과

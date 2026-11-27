@@ -134,6 +134,11 @@ class MoodRulesTest {
     // R-41 시리즈마다의 받는 기간
 
     @Test
+    fun `R-30 기본 규칙의 장 마감 여유 시간은 30분이다`() {
+        assertEquals(30, rules.closeGraceMinutes)
+    }
+
+    @Test
     fun `R-41 기본 규칙의 시리즈마다 받는 기간은 스무 개이고 이 순서다`() {
         val result = rules.fetchYearsBySeries().entries.map { it.key.seriesId to it.value }
         val closes = listOf("SPY", "QQQ", "SMH", "XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC")

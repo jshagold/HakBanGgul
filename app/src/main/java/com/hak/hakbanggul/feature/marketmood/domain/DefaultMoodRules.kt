@@ -94,5 +94,6 @@ object DefaultMoodRules {
             inflationTarget = 0.02,
         ),
         fetchYears = 2,
+        closeGraceMinutes = 30,
     )
 }

@@ -50,7 +50,7 @@ class MarketDataRefresherTest {
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, clock, appScope)
+        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, FetchFreshness(), clock, appScope)
     }
 
     private fun setKeys(twelveData: ApiKeyAvailability, fred: ApiKeyAvailability) {
@@ -58,6 +58,25 @@ class MarketDataRefresherTest {
     }
 
     private val started get() = repository.fetchCalls.isNotEmpty()
+
+    private val fredIds = listOf(MoodTestData.YIELD_CURVE, MoodTestData.HIGH_YIELD) + MoodTestData.VALUATION_SERIES
+    private val etfFresh = Instant.parse("2026-11-23T22:00:00Z")
+    private val etfStale = Instant.parse("2026-11-23T20:00:00Z")
+
+    // 받아 둔 값을 그 데이터로 두고, ETF 넷은 최신(받은 때 2026-11-23T22:00:00Z), FRED 여섯은 받은 때 fredAt으로 둔다.
+    private fun storeEtfFresh(fredAt: Instant?, builder: MoodTestData.Builder = dataA()) {
+        repository.setStored(builder, null)
+        repository.setFetchedAt(MoodTestData.STOCKS, etfFresh)
+        repository.setFetchedAt(fredIds, fredAt)
+    }
+
+    private fun TestScope.shownWithFetchedAt(): Boolean {
+        val refresher = newRefresher()
+        runCurrent()
+        refresher.onScreenShown()
+        advanceUntilIdle()
+        return started
+    }
 
     private fun TestScope.shownWith(stored: MoodTestData.Builder?, lastSuccessAt: Instant?): Boolean {
         repository.setStored(stored, lastSuccessAt)
@@ -91,13 +110,86 @@ class MarketDataRefresherTest {
     }
 
     @Test
-    fun `R-20 꼭 6시간 전이면 받지 않는다`() = runTest {
-        assertFalse(shownWith(dataA(), now.minus(Duration.ofHours(6))))
+    fun `R-20 1시간 전에 받았으면 받지 않는다`() = runTest {
+        assertFalse(shownWith(dataA(), now.minus(Duration.ofHours(1))))
+    }
+
+    // R-20, P-45, P-58 ETF는 장 마감, FRED는 6시간
+
+    @Test
+    fun `R-20 P-58 ETF 넷 최신, FRED 1시간 전이면 받지 않는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)))
+        assertFalse(shownWithFetchedAt())
     }
 
     @Test
-    fun `R-20 5시간 59분 전이면 받지 않는다`() = runTest {
-        assertFalse(shownWith(dataA(), now.minus(Duration.ofHours(5).plusMinutes(59))))
+    fun `R-20 P-58 ETF 넷 최신, FRED 6시간 1분 전이면 받는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(6).plusMinutes(1)))
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 ETF 넷 최신, FRED 꼭 6시간 전이면 받지 않는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(6)))
+        assertFalse(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 ETF 넷 최신, FRED 5시간 59분 전이면 받지 않는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(5).plusMinutes(59)))
+        assertFalse(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 ETF 넷 최신, FRED 받은 때가 지금보다 1분 뒤면 받는다`() = runTest {
+        storeEtfFresh(now.plus(Duration.ofMinutes(1)))
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 ETF 넷 최신, FRED 가운데 DFF만 받은 때가 없으면 받는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)))
+        repository.setFetchedAt(listOf(MoodTestData.POLICY_RATE), null)
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 SPY만 최신이 아니면 받는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)))
+        repository.setFetchedAt(listOf("SPY"), etfStale)
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-58 받은 때를 읽지 못하면 받는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)))
+        repository.failOnReadFetchedAt = true
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 P-45 SPY를 빼 판정이 없으면 나머지가 최신이어도 받는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)), dataA().removeSeries("SPY"))
+        assertTrue(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-20 ETF 넷 최신이어도 키 하나가 MISSING이면 받지 않는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(7)))
+        setKeys(AVAILABLE, MISSING)
+        assertFalse(shownWithFetchedAt())
+    }
+
+    @Test
+    fun `R-60 P-58 WHEN_STALE ETF 넷 최신, FRED 1시간 전이면 SKIPPED`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(1)))
+        assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-60 P-58 WHEN_STALE ETF 넷 최신, FRED 6시간 1분 전이면 REFRESHED`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(6).plusMinutes(1)))
+        assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
     }
 
     @Test
@@ -307,7 +399,7 @@ class MarketDataRefresherTest {
 
         val result = async {
             val r = refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE)
-            Triple(r, refresher.state.value, repository.stored.value)
+            Triple(r, refresher.state.value, repository.stored.value to repository.fetchedAt.toMap())
         }
         runCurrent()
 
@@ -317,12 +409,13 @@ class MarketDataRefresherTest {
 
         wait.complete(Unit)
         advanceUntilIdle()
-        val (r, stateAtReturn, storedAtReturn) = result.await()
+        val (r, stateAtReturn, storedAndFetchedAt) = result.await()
+        val (storedAtReturn, fetchedAtReturn) = storedAndFetchedAt
         assertEquals(RefreshRequestResult.REFRESHED, r)
         assertFalse(stateAtReturn.isRefreshing)
         assertNull(stateAtReturn.lastFailure)
         assertEquals(10, storedAtReturn.values.size)
-        assertEquals(now, storedAtReturn.lastSuccessAt)
+        assertEquals((MoodTestData.STOCKS + fredIds).associateWith { now }, fetchedAtReturn)
     }
 
     @Test
@@ -444,20 +537,20 @@ class MarketDataRefresherTest {
     }
 
     @Test
-    fun `R-60 WHEN_STALE 성공한 지 6시간 1분이면 받는다`() = runTest {
+    fun `R-60 WHEN_STALE 받은 지 6시간 1분이면 받는다`() = runTest {
         repository.setStored(dataA(), now.minus(Duration.ofHours(6).plusMinutes(1)))
         assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
     }
 
     @Test
-    fun `R-60 WHEN_STALE 성공한 지 꼭 6시간이면 받지 않는다`() = runTest {
-        repository.setStored(dataA(), now.minus(Duration.ofHours(6)))
+    fun `R-60 WHEN_STALE ETF 넷 최신, FRED 받은 지 꼭 6시간이면 받지 않는다`() = runTest {
+        storeEtfFresh(now.minus(Duration.ofHours(6)))
         assertEquals(RefreshRequestResult.SKIPPED, requestWith(RefreshCondition.WHEN_STALE))
         assertEquals(0, fetchCount)
     }
 
     @Test
-    fun `R-60 WHEN_STALE 성공한 때가 지금보다 뒤면 받는다`() = runTest {
+    fun `R-60 WHEN_STALE 받은 때가 지금보다 뒤면 받는다`() = runTest {
         repository.setStored(dataA(), now.plus(Duration.ofMinutes(5)))
         assertEquals(RefreshRequestResult.REFRESHED, requestWith(RefreshCondition.WHEN_STALE))
     }

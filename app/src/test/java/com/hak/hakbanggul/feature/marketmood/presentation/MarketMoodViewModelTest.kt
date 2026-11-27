@@ -20,6 +20,7 @@ import com.hak.hakbanggul.feature.marketmood.domain.FakeClock
 import com.hak.hakbanggul.feature.marketmood.domain.FakeMarketDataRepository
 import com.hak.hakbanggul.feature.marketmood.domain.FakeMoodRulesRepository
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
+import com.hak.hakbanggul.feature.marketmood.domain.FetchFreshness
 import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRefresher
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
@@ -98,6 +99,7 @@ class MarketMoodViewModelTest {
             observeKeys,
             repository,
             rulesRepository,
+            FetchFreshness(),
             clock,
             appScope,
         )

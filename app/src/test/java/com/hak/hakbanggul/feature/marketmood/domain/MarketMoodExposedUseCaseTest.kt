@@ -45,7 +45,7 @@ class MarketMoodExposedUseCaseTest {
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, clock, appScope)
+        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, FetchFreshness(), clock, appScope)
     }
 
     private fun holdFetch(answer: FetchResult? = null): CompletableDeferred<Unit> {

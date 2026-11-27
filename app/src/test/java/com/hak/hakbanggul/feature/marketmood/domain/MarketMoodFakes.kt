@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.seconds
 
 // 받아 둔 값을 메모리에 두고, 받기의 답을 테스트가 정하는 가짜
 class FakeMarketDataRepository(
-    stored: StoredMarketData = StoredMarketData(emptyMap(), null),
+    stored: StoredMarketData = StoredMarketData(emptyMap()),
 ) : MarketDataRepository {
     val stored = MutableStateFlow(stored)
 
@@ -35,7 +35,7 @@ class FakeMarketDataRepository(
 
     // requests: 시리즈 ID와 그 시작 날짜. 넘어온 순서 그대로다.
     data class FetchCall(val source: DataSource, val requests: List<Pair<String, LocalDate>>)
-    data class SaveCall(val values: Map<String, List<DailyValue>>, val succeededAt: Instant?)
+    data class SaveCall(val values: Map<String, List<DailyValue>>, val fetchedAt: Instant)
 
     override fun observeStored(): Flow<StoredMarketData> = stored
 
@@ -45,14 +45,22 @@ class FakeMarketDataRepository(
         return fetchAnswer(source, requests)
     }
 
-    override suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?) {
+    override suspend fun save(values: Map<String, List<DailyValue>>, fetchedAt: Instant) {
         callOrder += "save"
-        saveCalls += SaveCall(values, succeededAt)
+        saveCalls += SaveCall(values, fetchedAt)
         if (failOnSave || failOnSaveIf(values)) throw IOException("저장 실패")
-        stored.update { current ->
-            StoredMarketData(current.values + values, succeededAt ?: current.lastSuccessAt)
-        }
+        stored.update { current -> StoredMarketData(current.values + values) }
+        values.keys.forEach { this.fetchedAt[it] = fetchedAt }
     }
+
+    // 시리즈마다 마지막으로 받은 때. 테스트가 직접 정할 수도 있다.
+    val fetchedAt = mutableMapOf<String, Instant>()
+
+    // 켜면 받은 때를 읽지 못한다(빈 맵).
+    var failOnReadFetchedAt = false
+
+    override suspend fun getFetchedAt(): Map<String, Instant> =
+        if (failOnReadFetchedAt) emptyMap() else fetchedAt.toMap()
 
     // 받기의 세 때. 테스트가 직접 정할 수도 있다.
     val stamps = mutableMapOf<RefreshStamp, Instant>()
@@ -85,8 +93,17 @@ class FakeMarketDataRepository(
     // 그 때를 적은 값들, 적은 차례대로
     fun savedStamps(stamp: RefreshStamp): List<Instant> = saveStampCalls.filter { it.first == stamp }.map { it.second }
 
-    fun setStored(builder: MoodTestData.Builder?, lastSuccessAt: Instant?) {
-        stored.value = StoredMarketData(builder?.build() ?: emptyMap(), lastSuccessAt)
+    // 값을 그 데이터로 두고, 그 데이터에 든 시리즈 모두(ETF와 FRED)의 받은 때를 fetchedAt으로 둔다(null이면 비운다).
+    fun setStored(builder: MoodTestData.Builder?, fetchedAt: Instant?) {
+        val values = builder?.build() ?: emptyMap()
+        stored.value = StoredMarketData(values)
+        this.fetchedAt.clear()
+        setFetchedAt(values.keys, fetchedAt)
+    }
+
+    // 그 시리즈들의 받은 때를 at으로 둔다(null이면 지운다).
+    fun setFetchedAt(seriesIds: Collection<String>, at: Instant?) {
+        seriesIds.forEach { if (at == null) fetchedAt.remove(it) else fetchedAt[it] = at }
     }
 }
 

@@ -13,6 +13,9 @@ data class MoodRules(
     // 용어: 받는 기간
     // 장세의 시리즈 항목과 그 밖의 매매 판단 시리즈(10년물, 기준금리, 소비자물가)의 받는 기간(해)
     val fetchYears: Int,
+    // 용어: 여유 시간
+    // 장 마감(미국 동부 오후 4시) 뒤 출처에 그날 종가가 실리기까지 두는 여유(분). 장 마감의 때를 내는 데만 쓰고 판정에는 쓰지 않는다.
+    val closeGraceMinutes: Int,
 ) {
     // 전체 시장, 그 뒤 섹터 순서
     fun targets(): List<MarketTarget> = listOf(broadMarket) + sectors

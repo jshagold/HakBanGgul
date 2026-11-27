@@ -57,7 +57,6 @@ class RefreshMarketDataUseCase @Inject constructor(
 
         val state = RefreshRun(
             rules = rules,
-            now = now,
             pending = batches.size + if (fredRequests.isEmpty()) 0 else 1,
             fredSaved = fredRequests.isEmpty(),
             onBroadMarketReceived = onBroadMarketReceived,
@@ -74,6 +73,7 @@ class RefreshMarketDataUseCase @Inject constructor(
                 launch { fetchTwelveData(batches, state) }
             }
         }
+        state.assessStored()
         return state.outcome()
     }
 
@@ -136,10 +136,9 @@ class RefreshMarketDataUseCase @Inject constructor(
         }
     }
 
-    // 받기 한 번의 진행. 요청이 끝날 때마다 저장하고, 마지막으로 끝난 요청의 저장에 성공한 때를 싣는다.
+    // 받기 한 번의 진행. 요청이 끝날 때마다 그 요청의 값을 그 응답을 받은 때로 저장한다.
     private inner class RefreshRun(
         private val rules: MoodRules,
-        private val now: Instant,
         // 아직 끝나지 않은 요청의 수
         private var pending: Int,
         private var fredSaved: Boolean,
@@ -156,18 +155,17 @@ class RefreshMarketDataUseCase @Inject constructor(
 
         suspend fun finish(result: FetchResult, isFred: Boolean, isFirstBatch: Boolean) = mutex.withLock {
             pending--
-            // 장이 끝나지 않은 날 거르기는 그 요청의 응답을 받은 때로 한다.
+            // 장이 끝나지 않은 날 거르기와 받은 때는 그 요청의 응답을 받은 때로 한다.
+            val receivedAt = clock.instant()
             val received = when (result) {
-                is FetchResult.Success -> result.values.mapValues { (id, values) -> dropUnclosedDays(id, values, clock.instant()) }
+                is FetchResult.Success -> result.values.mapValues { (id, values) -> dropUnclosedDays(id, values, receivedAt) }
                 is FetchResult.Failure -> {
                     errors += result.error
                     null
                 }
             }
-            val last = pending == 0
-            val succeededAt = if (last && allSucceeded()) successStampOrNull(received.orEmpty()) else null
-            if (received != null && (received.isNotEmpty() || succeededAt != null)) {
-                val saved = save(received, succeededAt)
+            if (!received.isNullOrEmpty()) {
+                val saved = save(received, receivedAt)
                 if (saved && isFred) fredSaved = true
                 if (saved && isFirstBatch) firstBatchSaved = true
             }
@@ -177,7 +175,7 @@ class RefreshMarketDataUseCase @Inject constructor(
             }
         }
 
-        // 보내지 않는 묶음. 모두 성공한 것이 아니므로 성공한 때는 적지 않는다.
+        // 보내지 않는 묶음
         suspend fun skip(count: Int) = mutex.withLock {
             if (count > 0) skipped = true
             pending -= count
@@ -193,16 +191,16 @@ class RefreshMarketDataUseCase @Inject constructor(
 
         private fun allSucceeded() = errors.isEmpty() && !skipped && !saveFailed
 
-        // 값을 받아 둔 것에 덮은 것으로 판정을 낼 수 있을 때만 받는 때(받기를 시작한 시각)를 성공한 때로 싣는다.
-        private suspend fun successStampOrNull(received: Map<String, List<DailyValue>>): Instant? {
+        // 모든 요청이 끝난 뒤, 모두 성공해 저장되었으면 받아 둔 값으로 판정을 낼 수 있는지 본다.
+        suspend fun assessStored() {
+            if (!allSucceeded()) return
             val stored = marketDataRepository.observeStored().first().values
-            canAssess = calculator.assess(rules, stored + received) != null
-            return if (canAssess) now else null
+            canAssess = calculator.assess(rules, stored) != null
         }
 
-        private suspend fun save(values: Map<String, List<DailyValue>>, succeededAt: Instant?): Boolean =
+        private suspend fun save(values: Map<String, List<DailyValue>>, fetchedAt: Instant): Boolean =
             try {
-                marketDataRepository.save(values, succeededAt)
+                marketDataRepository.save(values, fetchedAt)
                 true
             } catch (e: IOException) {
                 saveFailed = true

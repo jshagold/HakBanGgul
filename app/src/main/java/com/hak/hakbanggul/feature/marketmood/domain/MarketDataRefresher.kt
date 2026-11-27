@@ -27,6 +27,7 @@ class MarketDataRefresher @Inject constructor(
     private val observeSourceKeys: ObserveSourceKeysUseCase,
     private val marketDataRepository: MarketDataRepository,
     private val rulesRepository: MoodRulesRepository,
+    private val freshness: FetchFreshness,
     private val clock: Clock,
     @param:ApplicationScope private val scope: CoroutineScope,
 ) {
@@ -125,9 +126,10 @@ class MarketDataRefresher @Inject constructor(
                 val mood = observeMood().first()
                 val stored = marketDataRepository.observeStored().first()
                 val rules = rulesRepository.observe().first()
-                // 값이 한 날이라도 있으면 있다고 본다.
-                val missingTarget = rules.targets().any { stored.values[it.closeSeries.seriesId].isNullOrEmpty() }
-                mood == null || missingTarget || isOver(stored.lastSuccessAt, now, STALE_AFTER)
+                val fetchedAt = marketDataRepository.getFetchedAt()
+                // 받아 둔 종가가 없는 대상도 최신이 아니다.
+                val staleEtf = freshness.staleTargets(rules, stored.values, fetchedAt, now).isNotEmpty()
+                mood == null || staleEtf || isOver(freshness.fredFetchedAt(rules, fetchedAt), now, STALE_AFTER)
             }
             RefreshCondition.WHEN_KEYS_AVAILABLE -> true
             RefreshCondition.WHEN_NOT_RECENTLY_STARTED -> {
@@ -147,7 +149,7 @@ class MarketDataRefresher @Inject constructor(
         isNotEmpty() && values.all { it == ApiKeyAvailability.AVAILABLE }
 
     private companion object {
-        // 마지막 성공에서 이만큼을 넘으면 새로 받는다.
+        // FRED 시리즈의 받은 때 가운데 가장 이른 때에서 이만큼을 넘으면 새로 받는다.
         val STALE_AFTER: Duration = Duration.ofHours(6)
 
         // WHEN_NOT_RECENTLY_STARTED: 시작한 때와 끝난 때 가운데 늦은 때에서 이만큼을 넘으면 받는다.

@@ -70,11 +70,17 @@ class MarketDataRepositoryImplTest {
         var failOnDeleteAll = false
         var failOnObserve = false
         var failOnUpsert = false
+        var failOnGetByPrefix = false
         var deleteAllCalls = 0
 
         // Room처럼 어느 이름의 행이 바뀌든 다시 내보낸다(같은 값이어도).
         override fun observe(name: String): Flow<Long?> =
             if (failOnObserve) flow { throw IllegalStateException("읽기 실패") } else stamps.map { it[name] }
+
+        override suspend fun getByPrefix(prefix: String): List<SyncStampEntity> {
+            if (failOnGetByPrefix) throw IllegalStateException("읽기 실패")
+            return stamps.value.filterKeys { it.startsWith(prefix) }.map { (name, millis) -> SyncStampEntity(name, millis) }
+        }
 
         override suspend fun upsert(stamp: SyncStampEntity) {
             if (failOnUpsert) throw IllegalStateException("쓰기 실패")
@@ -142,7 +148,7 @@ class MarketDataRepositoryImplTest {
             row("QQQ", "2026-11-20", 100.0),
         )
 
-        repository.save(mapOf("SPY" to listOf(value("2026-11-20", 101.0), value("2026-11-23", 102.0))), null)
+        repository.save(mapOf("SPY" to listOf(value("2026-11-20", 101.0), value("2026-11-23", 102.0))), Instant.parse("2026-11-24T01:00:00Z"))
 
         assertEquals(
             listOf(row("SPY", "2026-11-20", 101.0), row("SPY", "2026-11-23", 102.0)),
@@ -154,29 +160,81 @@ class MarketDataRepositoryImplTest {
     // R-55 한 번에 저장
 
     @Test
-    fun `R-55 지우기, 넣기, 성공한 때 적기가 모두 한 트랜잭션 안에서 불린다`() = runTest {
+    fun `R-55 R-109 지우기, 넣기, 받은 때 적기가 모두 한 트랜잭션 안에서 불리고 시리즈마다 받은 때가 적힌다`() = runTest {
+        dailyDao.rows.value = listOf(row("SPY", "2026-11-20", 100.0), row("QQQ", "2026-11-20", 100.0))
+
         repository.save(
             mapOf(
                 "SPY" to listOf(value("2026-11-23", 102.0)),
-                "T10Y2Y" to listOf(value("2026-11-23", 0.29)),
+                "QQQ" to listOf(value("2026-11-23", 103.0)),
             ),
             Instant.parse("2026-11-24T01:00:00Z"),
         )
 
         assertEquals(1, runner.runCalls)
         assertEquals(
-            listOf("deleteBySeries:SPY", "insertAll", "deleteBySeries:T10Y2Y", "insertAll", "upsert"),
-            calls.map { it.first },
+            listOf(row("QQQ", "2026-11-23", 103.0), row("SPY", "2026-11-23", 102.0)),
+            dailyDao.rows.value.sortedBy { it.seriesId },
         )
+        assertEquals(2, calls.count { it.first == "upsert" })
+        assertEquals(setOf("deleteBySeries:SPY", "deleteBySeries:QQQ", "insertAll", "upsert"), calls.map { it.first }.toSet())
         assertTrue(calls.all { it.second })
-        assertEquals(Instant.parse("2026-11-24T01:00:00Z").toEpochMilli(), stampDao.stamps.value["market_mood_refresh"])
+        assertEquals(1795482000000L, stampDao.stamps.value["market_mood_fetched:SPY"])
+        assertEquals(1795482000000L, stampDao.stamps.value["market_mood_fetched:QQQ"])
+    }
+
+    @Test
+    fun `R-109 저장한 받은 때를 읽고 다른 때의 행은 들지 않는다`() = runTest {
+        repository.save(mapOf("SPY" to listOf(value("2026-11-23", 102.0)), "QQQ" to listOf(value("2026-11-23", 103.0))), t0100)
+        stampDao.stamps.update {
+            it + mapOf(
+                "market_mood_refresh_started" to 1L,
+                "market_mood_refresh_finished" to 2L,
+                "twelve_data_last_request" to 3L,
+                "market_mood_refresh" to 4L,
+            )
+        }
+
+        assertEquals(mapOf("SPY" to t0100, "QQQ" to t0100), repository.getFetchedAt())
+    }
+
+    @Test
+    fun `R-109 같은 시리즈를 다시 저장하면 그 시리즈의 받은 때가 바뀐다`() = runTest {
+        repository.save(mapOf("SPY" to listOf(value("2026-11-23", 102.0)), "QQQ" to listOf(value("2026-11-23", 103.0))), t0100)
+        repository.save(mapOf("SPY" to listOf(value("2026-11-23", 102.0))), t0105)
+
+        assertEquals(mapOf("SPY" to t0105, "QQQ" to t0100), repository.getFetchedAt())
+    }
+
+    @Test
+    fun `R-109 받은 때를 읽다가 예외가 나면 예외 없이 빈 맵`() = runTest {
+        repository.save(spy, t0100)
+        stampDao.failOnGetByPrefix = true
+
+        assertEquals(emptyMap<String, Instant>(), repository.getFetchedAt())
+    }
+
+    @Test
+    fun `R-48 받은 때의 행만 바뀌거나 세 때를 적어도 받아 둔 값의 Flow는 새 값을 내보내지 않는다`() = runTest {
+        stampDao.stamps.value = mapOf("market_mood_refresh" to 1L)
+        repository.save(spy, t0100)
+        val received = mutableListOf<StoredMarketData>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repository.observeStored().toList(received) }
+        assertEquals(listOf(StoredMarketData(mapOf("SPY" to listOf(value("2026-11-23", 102.0))))), received)
+
+        stampDao.upsert(SyncStampEntity("market_mood_fetched:SPY", t0105.toEpochMilli()))
+        repository.saveStamp(RefreshStamp.STARTED, t0100)
+        repository.saveStamp(RefreshStamp.TWELVE_DATA_REQUESTED, t0101)
+        repository.saveStamp(RefreshStamp.FINISHED, t0102)
+
+        assertEquals(1, received.size)
     }
 
     @Test
     fun `R-55 트랜잭션이 예외를 던지면 IOException이 난다`() = runTest {
         runner.failure = IllegalStateException("트랜잭션 실패")
         try {
-            repository.save(mapOf("SPY" to listOf(value("2026-11-23", 102.0))), null)
+            repository.save(mapOf("SPY" to listOf(value("2026-11-23", 102.0))), t0100)
             fail("IOException이 나야 한다")
         } catch (e: IOException) {
             // 기대한 대로
@@ -191,7 +249,7 @@ class MarketDataRepositoryImplTest {
 
         val stored = repository.observeStored().first()
 
-        assertEquals(StoredMarketData(emptyMap(), null), stored)
+        assertEquals(StoredMarketData(emptyMap()), stored)
         assertTrue(dailyDao.deleteAllCalls > 0)
         assertTrue(stampDao.deleteAllCalls > 0)
     }
@@ -204,7 +262,7 @@ class MarketDataRepositoryImplTest {
 
         val stored = repository.observeStored().first()
 
-        assertEquals(StoredMarketData(emptyMap(), null), stored)
+        assertEquals(StoredMarketData(emptyMap()), stored)
     }
 
     // R-62 마지막으로 받기를 시작한 때
@@ -235,11 +293,11 @@ class MarketDataRepositoryImplTest {
     }
 
     @Test
-    fun `R-62 시작한 때를 적어도 성공한 때는 그대로다`() = runTest {
+    fun `R-62 시작한 때를 적어도 받은 때는 그대로다`() = runTest {
         repository.save(spy, Instant.parse("2026-11-24T00:00:00Z"))
         repository.saveStamp(RefreshStamp.STARTED, t0100)
 
-        assertEquals(Instant.parse("2026-11-24T00:00:00Z"), repository.observeStored().first().lastSuccessAt)
+        assertEquals(mapOf("SPY" to Instant.parse("2026-11-24T00:00:00Z")), repository.getFetchedAt())
         assertEquals(t0100, repository.getStamp(RefreshStamp.STARTED))
     }
 

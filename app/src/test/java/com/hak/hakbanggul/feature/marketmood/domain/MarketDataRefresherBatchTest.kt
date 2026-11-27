@@ -55,7 +55,7 @@ class MarketDataRefresherBatchTest {
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
         val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, pacing, clock)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
-        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, clock, appScope).also { runCurrent() }
+        return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, FetchFreshness(), clock, appScope).also { runCurrent() }
     }
 
     private fun TestScope.collectStates(refresher: MarketDataRefresher): MutableList<RefreshState> {
@@ -197,6 +197,19 @@ class MarketDataRefresherBatchTest {
     fun `R-20 받아 둔 XLK가 값 하나뿐이면 받지 않는다`() = runTest {
         repository.setStored(dataA().keepOnly("XLK") { it == MoodTestData.END }, now.minus(Duration.ofHours(1)))
         assertEquals(RefreshRequestResult.SKIPPED, newRefresher().request(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-20 받아 둔 XLK가 값 하나뿐이어도 받은 때가 장 마감 전이면 받는다`() = runTest {
+        repository.setStored(dataA().keepOnly("XLK") { it == MoodTestData.END }, now.minus(Duration.ofHours(1)))
+        repository.setFetchedAt(listOf("XLK"), Instant.parse("2026-11-23T20:00:00Z"))
+        assertEquals(RefreshRequestResult.REFRESHED, newRefresher().request(RefreshCondition.WHEN_STALE))
+    }
+
+    @Test
+    fun `R-20 받아 둔 값이 없으면 WHEN_STALE은 REFRESHED`() = runTest {
+        repository.setStored(null, null)
+        assertEquals(RefreshRequestResult.REFRESHED, newRefresher().request(RefreshCondition.WHEN_STALE))
     }
 
     @Test

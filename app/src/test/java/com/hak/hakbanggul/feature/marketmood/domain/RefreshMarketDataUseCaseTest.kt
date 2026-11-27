@@ -23,7 +23,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -227,7 +226,7 @@ class RefreshMarketDataUseCaseTest {
     }
 
     @Test
-    fun `R-54 묶음 둘이면 save는 셋이고 성공한 때는 둘째 묶음의 save에만 실린다`() = runTest {
+    fun `R-54 묶음 둘이면 save는 셋이고 받은 때는 요청마다 실린다`() = runTest {
         val useCase = useCase(twoBatches)
         val result = async { useCase() }
 
@@ -239,14 +238,47 @@ class RefreshMarketDataUseCaseTest {
             setOf(setOf("SPY", "QQQ"), fredIds.toSet()),
             repository.saveCalls.map { it.values.keys }.toSet(),
         )
-        assertTrue(repository.saveCalls.all { it.succeededAt == null })
+        assertTrue(repository.saveCalls.all { it.fetchedAt == startedAt })
 
         result.await()
 
         assertEquals(3, repository.saveCalls.size)
         val last = repository.saveCalls.last()
         assertEquals(setOf("SMH", "XLK"), last.values.keys)
-        assertEquals(startedAt, last.succeededAt)
+        assertEquals(startedAt.plusSeconds(65), last.fetchedAt)
+    }
+
+    // R-23, R-109 받은 때
+
+    @Test
+    fun `R-23 R-109 묶음 둘이면 FRED와 첫 묶음은 0초, 둘째 묶음은 65초의 받은 때로 저장한다`() = runTest {
+        useCase(twoBatches)()
+
+        assertEquals(3, repository.saveCalls.size)
+        val t0 = Instant.parse("2026-11-24T01:00:00Z")
+        val t65 = Instant.parse("2026-11-24T01:01:05Z")
+        assertEquals(
+            setOf(fredIds.toSet() to t0, setOf("SPY", "QQQ") to t0, setOf("SMH", "XLK") to t65),
+            repository.saveCalls.map { it.values.keys to it.fetchedAt }.toSet(),
+        )
+        assertEquals(
+            fredIds.associateWith { t0 } + mapOf("SPY" to t0, "QQQ" to t0, "SMH" to t65, "XLK" to t65),
+            repository.fetchedAt.toMap(),
+        )
+    }
+
+    @Test
+    fun `R-23 R-109 둘째 묶음이 한도 넘음이면 SMH, XLK의 받은 때와 값은 그대로다`() = runTest {
+        repository.setStored(dataA(), null)
+        repository.remote = dataB()
+        answer(secondBatch = failure(DataFetchError.RATE_LIMITED))
+
+        useCase(twoBatches)()
+
+        assertFalse("SMH" in repository.fetchedAt)
+        assertFalse("XLK" in repository.fetchedAt)
+        assertEquals(dataA().build(listOf("SMH", "XLK")), repository.stored.value.values.filterKeys { it in setOf("SMH", "XLK") })
+        assertEquals(startedAt, repository.fetchedAt["SPY"])
     }
 
     @Test
@@ -255,7 +287,7 @@ class RefreshMarketDataUseCaseTest {
 
         assertEquals(RefreshOutcome.Success, outcome)
         assertEquals(2, repository.saveCalls.size)
-        assertEquals(listOf(null, startedAt), repository.saveCalls.map { it.succeededAt })
+        assertEquals(listOf(startedAt, startedAt), repository.saveCalls.map { it.fetchedAt })
         assertEquals((STOCKS + fredIds).toSet(), savedValues().keys)
     }
 
@@ -311,7 +343,7 @@ class RefreshMarketDataUseCaseTest {
     // R-43 일부 묶음만 실패, 키 거절
 
     @Test
-    fun `R-43 첫 묶음이 한도 넘음이어도 둘째 묶음과 FRED는 저장하고 성공한 때는 적지 않는다`() = runTest {
+    fun `R-43 첫 묶음이 한도 넘음이어도 둘째 묶음과 FRED는 저장하고 첫 묶음의 받은 때는 적지 않는다`() = runTest {
         answer(firstBatch = failure(DataFetchError.RATE_LIMITED))
 
         val outcome = useCase(twoBatches)()
@@ -319,7 +351,7 @@ class RefreshMarketDataUseCaseTest {
         assertEquals(65_000L, twelveDataSent().last().at)
         assertEquals((listOf("SMH", "XLK") + fredIds).toSet(), savedValues().keys)
         assertEquals(RefreshOutcome.Failure(RefreshFailure.RATE_LIMITED), outcome)
-        assertTrue(repository.saveCalls.all { it.succeededAt == null })
+        assertEquals((listOf("SMH", "XLK") + fredIds).toSet(), repository.fetchedAt.keys)
     }
 
     @Test
@@ -355,7 +387,7 @@ class RefreshMarketDataUseCaseTest {
     }
 
     @Test
-    fun `R-43 성공한 출처의 시리즈만 성공한 때 없이 저장한다`() = runTest {
+    fun `R-43 성공한 출처의 시리즈만 그 받은 때로 저장한다`() = runTest {
         repository.setStored(dataA(), null)
         repository.remote = dataB()
         answer(firstBatch = failure(DataFetchError.NO_CONNECTION))
@@ -364,7 +396,8 @@ class RefreshMarketDataUseCaseTest {
 
         val save = repository.saveCalls.single()
         assertEquals(dataB().build(fredIds), save.values)
-        assertNull(save.succeededAt)
+        assertEquals(startedAt, save.fetchedAt)
+        assertEquals(fredIds.toSet(), repository.fetchedAt.keys)
         assertEquals(RefreshOutcome.Failure(RefreshFailure.NO_CONNECTION), outcome)
     }
 
@@ -462,7 +495,7 @@ class RefreshMarketDataUseCaseTest {
     }
 
     @Test
-    fun `R-42 모두 성공했는데 SPY 종가가 모자라 판정을 낼 수 없으면 OTHER이고 성공한 때 없이 저장한다`() = runTest {
+    fun `R-42 모두 성공했는데 SPY 종가가 모자라 판정을 낼 수 없으면 OTHER이고 받은 때와 함께 저장한다`() = runTest {
         val keep = MoodTestData.weekdaysEndingAt(MoodTestData.END, 69).toSet()
         repository.remote = dataA().keepOnly("SPY") { it in keep }
 
@@ -470,18 +503,19 @@ class RefreshMarketDataUseCaseTest {
 
         assertEquals(RefreshOutcome.Failure(RefreshFailure.OTHER), outcome)
         assertEquals(repository.remote.build(), savedValues())
-        assertTrue(repository.saveCalls.all { it.succeededAt == null })
+        assertTrue(repository.saveCalls.all { it.fetchedAt == startedAt })
     }
 
     @Test
-    fun `R-42 출처가 DFII10 없이 돌려주면 OTHER이고 받은 값은 저장되며 성공한 때는 적지 않는다`() = runTest {
+    fun `R-42 R-109 출처가 DFII10 없이 돌려주면 OTHER이고 받은 값과 받은 때는 저장되며 DFII10의 받은 때는 그대로다`() = runTest {
         repository.remote = dataA().removeSeries(MoodTestData.REAL_YIELD)
 
         val outcome = useCase()()
 
         assertEquals(RefreshOutcome.Failure(RefreshFailure.OTHER), outcome)
         assertEquals(repository.remote.build(), savedValues())
-        assertTrue(repository.saveCalls.all { it.succeededAt == null })
+        assertEquals(repository.remote.build().keys.associateWith { startedAt }, repository.fetchedAt.toMap())
+        assertFalse(MoodTestData.REAL_YIELD in repository.fetchedAt)
     }
 
     @Test
@@ -579,7 +613,7 @@ class RefreshMarketDataUseCaseTest {
         assertEquals(listOf(TWELVE_DATA, FRED), repository.fetchCalls.map { it.source }.sortedBy { it.ordinal })
         assertEquals(RefreshOutcome.Success, outcome)
         assertEquals((STOCKS + fredIds).toSet(), savedValues().keys)
-        assertEquals(startedAt, repository.saveCalls.last().succeededAt)
+        assertTrue(repository.saveCalls.all { it.fetchedAt == startedAt })
     }
 
     // R-62, P-44 끝난 때
