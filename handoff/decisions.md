@@ -27,6 +27,12 @@
 ### D-08 (전달 1) 한 벌을 냈는지 적는 때
 단위 3의 ObserveMarketOverviewUseCase는 앱 범위에서 나눠 주는 계산이 Ready를 만든 때 "냈음"을 적는다(받는 쪽에 닿은 때가 아니라). 그래서 계산이 끝난 뒤 모으기 시작한 쪽은 Calculating 없이 들고 있던 Ready를 바로 받는다. 아직 내지 않았을 때 모으기 시작한 쪽은 규칙의 첫 값으로 Calculating을 먼저 받는다. (R-04, R-111, P-60)
 
+### D-09 (전달 1) MainActivity가 뒤에서 미리 받기를 넣는 법
+단위 5의 MainActivity는 Hilt 필드 주입으로 CloseRefreshScheduler와 앱 범위(@ApplicationScope CoroutineScope)를 받아, onCreate에서 그 범위로 ensureScheduled()를 부른다. 취소가 아닌 예외는 삼킨다. Activity가 이미 @AndroidEntryPoint라 EntryPoint를 따로 두지 않았다. 화면을 돌려 다시 만들어질 때도 부르지만 KEEP이라 작업이 그대로다. (R-115, P-62)
+
+### D-10 (전달 1) 뒤에서 미리 받는 작업의 예외 처리
+단위 5의 CloseRefreshWorker는 받기 청과 다음 차례 잇기를 따로 감싼다. 청에서 취소가 아닌 예외가 나도 다음 차례를 잇고, 잇기에서 예외가 나도 성공으로 끝낸다(잇지 못한 때는 다음에 앱을 열 때 ensureScheduled가 다시 넣는다). 취소는 다시 던져 잇지 않는다. (R-115, P-62)
+
 ## BACKLOG
 없음
 
