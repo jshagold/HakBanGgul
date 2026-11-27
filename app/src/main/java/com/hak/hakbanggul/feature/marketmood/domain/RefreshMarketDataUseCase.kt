@@ -19,20 +19,22 @@ import java.time.ZoneId
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 
-// 받기 한 번. FRED는 한 번에, Twelve Data는 분당 한도에 맞게 묶음으로 나눠 받고, 요청 하나가 성공할 때마다 바로 저장한다.
+// 받기 한 번. 최신이 아닌 ETF와 FRED 시리즈 모두를 받는다. FRED는 한 번에, Twelve Data는 분당 한도에 맞게 묶음으로 나눠 받고,
+// 요청 하나가 성공할 때마다 바로 저장한다.
 // 시장 분위기 안에서만 쓴다. 다른 기능은 이것을 직접 쓰지 않고 RequestRefreshUseCase를 쓴다.
 class RefreshMarketDataUseCase @Inject constructor(
     private val marketDataRepository: MarketDataRepository,
     private val rulesRepository: MoodRulesRepository,
     private val calculator: MoodCalculator,
+    private val freshness: FetchFreshness,
     private val pacing: FetchPacing,
     private val clock: Clock,
 ) {
-    // onBroadMarketReceived: 전체 시장이 든 첫 묶음과 FRED를 모두 받아 저장했을 때 한 번 부른다.
+    // listener: 이번 받기의 진행을 받는다.
     // 돌아오기 직전(성공, 실패, 예외 모두)에 끝난 때를 적는다. 코루틴이 취소된 때는 적지 않는다.
-    suspend operator fun invoke(onBroadMarketReceived: () -> Unit = {}): RefreshOutcome {
+    suspend operator fun invoke(listener: RefreshProgressListener = RefreshProgressListener.NONE): RefreshOutcome {
         val outcome = try {
-            refresh(onBroadMarketReceived)
+            refresh(listener)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -43,15 +45,22 @@ class RefreshMarketDataUseCase @Inject constructor(
         return outcome
     }
 
-    private suspend fun refresh(onBroadMarketReceived: () -> Unit): RefreshOutcome {
+    private suspend fun refresh(listener: RefreshProgressListener): RefreshOutcome {
         val now = clock.instant()
         // 출처에 요청을 보내기 전에 시작한 때를 적는다. 적지 못해도 받기는 이어 간다.
         saveStampQuietly(RefreshStamp.STARTED, now)
         val rules = rulesRepository.observe().first()
-        // 시리즈마다 받는 때의 미국 동부 시간 날짜에서 그 시리즈의 받는 기간(해)을 뺀 날부터 받는다.
+        val stored = marketDataRepository.observeStored().first().values
+        // 이번에 받을 ETF: 최신이 아닌 대상의 종가 시리즈. targets() 순서라 전체 시장이 맨 앞이다.
+        val staleIds = freshness.staleTargets(rules, stored, marketDataRepository.getFetchedAt(), now).map { it.closeSeries.seriesId }
+        listener.onEtfsDecided(staleIds)
+
+        // 시리즈마다 받는 때의 미국 동부 시간 날짜에서 그 시리즈의 받는 기간(해)을 뺀 날부터 받는다. 받지 않는 ETF는 넣지 않는다.
         val today = now.atZone(MARKET_ZONE).toLocalDate()
-        val requests = rules.fetchYearsBySeries().map { (series, years) -> SeriesRequest(series, today.minusYears(years.toLong())) }
-        // 대상의 종가가 앞에 오므로(targets() 순서) 첫 묶음에 전체 시장이 든다.
+        val requests = rules.fetchYearsBySeries()
+            .filter { (series, _) -> series.source != DataSource.TWELVE_DATA || series.seriesId in staleIds }
+            .map { (series, years) -> SeriesRequest(series, today.minusYears(years.toLong())) }
+        // 대상의 종가가 앞에 오므로(targets() 순서) 전체 시장을 받으면 첫 묶음에 든다.
         val batches = requests.filter { it.series.source == DataSource.TWELVE_DATA }.chunked(pacing.batchSize.coerceAtLeast(1))
         val fredRequests = requests.filter { it.series.source == DataSource.FRED }
 
@@ -59,18 +68,21 @@ class RefreshMarketDataUseCase @Inject constructor(
             rules = rules,
             pending = batches.size + if (fredRequests.isEmpty()) 0 else 1,
             fredSaved = fredRequests.isEmpty(),
-            onBroadMarketReceived = onBroadMarketReceived,
+            // 전체 시장을 받지 않는 받기면 FRED만 기다린다.
+            firstBatchSaved = rules.broadMarket.closeSeries.seriesId !in staleIds,
+            listener = listener,
         )
 
         coroutineScope {
             if (fredRequests.isNotEmpty()) {
                 launch {
                     val result = fetchWithTimeout(DataSource.FRED, fredRequests)
-                    state.finish(result, isFred = true, isFirstBatch = false)
+                    state.finish(result, fredRequests.ids(), isFred = true, isFirstBatch = false)
                 }
             }
+            // 받을 ETF가 없으면 Twelve Data에는 요청하지 않고, 마지막으로 보낸 때를 읽거나 적지도, 기다리지도 않는다.
             if (batches.isNotEmpty()) {
-                launch { fetchTwelveData(batches, state) }
+                launch { fetchTwelveData(batches, state, listener) }
             }
         }
         state.assessStored()
@@ -79,21 +91,26 @@ class RefreshMarketDataUseCase @Inject constructor(
 
     // 묶음을 차례로 보낸다. 첫 묶음은 Twelve Data에 마지막으로 요청을 보낸 때로부터, 다음 묶음은 앞 묶음을 보낸 때로부터
     // batchInterval이 지난 뒤에 보낸다. 출처가 키를 거절하면 남은 묶음은 보내지 않는다.
-    private suspend fun fetchTwelveData(batches: List<List<SeriesRequest>>, state: RefreshRun) {
+    private suspend fun fetchTwelveData(batches: List<List<SeriesRequest>>, state: RefreshRun, listener: RefreshProgressListener) {
         var previousSentAt: Instant? = lastTwelveDataRequest()
+        var unsent = batches.sumOf { it.size }
         for ((index, batch) in batches.withIndex()) {
             waitUntilInterval(previousSentAt)
             val sentAt = clock.instant()
             previousSentAt = sentAt
             saveStampQuietly(RefreshStamp.TWELVE_DATA_REQUESTED, sentAt)
+            unsent -= batch.size
+            listener.onBatchSent(unsent)
             val result = fetchWithTimeout(DataSource.TWELVE_DATA, batch)
-            state.finish(result, isFred = false, isFirstBatch = index == 0)
+            state.finish(result, batch.ids(), isFred = false, isFirstBatch = index == 0)
             if (result is FetchResult.Failure && result.error in KEY_ERRORS) {
-                state.skip(batches.size - index - 1)
+                state.skip(batches.drop(index + 1))
                 return
             }
         }
     }
+
+    private fun List<SeriesRequest>.ids(): List<String> = map { it.series.seriesId }
 
     // 지금보다 뒤로 적혀 있으면 없는 것으로 본다(기기 시각이 바뀐 때).
     private suspend fun lastTwelveDataRequest(): Instant? {
@@ -136,13 +153,14 @@ class RefreshMarketDataUseCase @Inject constructor(
         }
     }
 
-    // 받기 한 번의 진행. 요청이 끝날 때마다 그 요청의 값을 그 응답을 받은 때로 저장한다.
+    // 받기 한 번의 진행. 요청이 끝날 때마다 그 요청의 값을 그 응답을 받은 때로 저장하고 리스너에 알린다.
     private inner class RefreshRun(
         private val rules: MoodRules,
         // 아직 끝나지 않은 요청의 수
         private var pending: Int,
         private var fredSaved: Boolean,
-        private val onBroadMarketReceived: () -> Unit,
+        private var firstBatchSaved: Boolean,
+        private val listener: RefreshProgressListener,
     ) {
         private val mutex = Mutex()
         private val kindById = rules.fetchYearsBySeries().keys.associate { it.seriesId to it.kind }
@@ -150,10 +168,9 @@ class RefreshMarketDataUseCase @Inject constructor(
         private var skipped = false
         private var saveFailed = false
         private var canAssess = false
-        private var firstBatchSaved = false
         private var broadMarketNotified = false
 
-        suspend fun finish(result: FetchResult, isFred: Boolean, isFirstBatch: Boolean) = mutex.withLock {
+        suspend fun finish(result: FetchResult, seriesIds: List<String>, isFred: Boolean, isFirstBatch: Boolean) = mutex.withLock {
             pending--
             // 장이 끝나지 않은 날 거르기와 받은 때는 그 요청의 응답을 받은 때로 한다.
             val receivedAt = clock.instant()
@@ -169,16 +186,19 @@ class RefreshMarketDataUseCase @Inject constructor(
                 if (saved && isFred) fredSaved = true
                 if (saved && isFirstBatch) firstBatchSaved = true
             }
+            listener.onRequestFinished(seriesIds)
             if (fredSaved && firstBatchSaved && !broadMarketNotified) {
                 broadMarketNotified = true
-                onBroadMarketReceived()
+                listener.onBroadMarketReceived()
             }
         }
 
-        // 보내지 않는 묶음
-        suspend fun skip(count: Int) = mutex.withLock {
-            if (count > 0) skipped = true
-            pending -= count
+        // 보내지 않는 묶음. 그 묶음의 ETF도 요청이 끝난 것으로 알린다.
+        suspend fun skip(batches: List<List<SeriesRequest>>) = mutex.withLock {
+            if (batches.isNotEmpty()) skipped = true
+            pending -= batches.size
+            val ids = batches.flatten().ids()
+            if (ids.isNotEmpty()) listener.onRequestFinished(ids)
         }
 
         // 원인은 모든 요청에서 모은다: 한도 넘음 > 연결 안 됨 > 그 밖(키 거절, 읽을 수 없음, 저장하지 못함, 판정을 낼 수 없음)

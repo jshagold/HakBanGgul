@@ -62,12 +62,18 @@ class RefreshMarketDataUseCaseTest {
             repository,
             rulesRepository,
             MoodCalculator(RegimeCalculator(), ValuationCalculator()),
+            FetchFreshness(),
             pacing,
             SchedulerClock(start, testScheduler),
         )
     }
 
     private fun failure(error: DataFetchError) = FetchResult.Failure(error)
+
+    // 전체 시장의 값을 받음만 받는 리스너
+    private fun onBroad(block: () -> Unit) = object : RefreshProgressListener {
+        override fun onBroadMarketReceived() = block()
+    }
 
     // 출처마다(Twelve Data는 묶음마다) 답을 정한다. firstBatch는 SPY가 든 묶음, secondBatch는 그 밖의 묶음이다.
     private fun answer(firstBatch: FetchResult? = null, secondBatch: FetchResult? = null, fred: FetchResult? = null) {
@@ -297,7 +303,7 @@ class RefreshMarketDataUseCaseTest {
     fun `R-108 FRED와 첫 묶음의 저장이 끝난 뒤, 둘째 묶음을 보내기 전에 한 번 부른다`() = runTest {
         val calls = mutableListOf<Long>()
         val useCase = useCase(twoBatches)
-        useCase { calls += currentTime; repository.callOrder += "notify" }
+        useCase(onBroad { calls += currentTime; repository.callOrder += "notify" })
 
         assertEquals(listOf(0L), calls)
         val order = repository.callOrder.filter { it == "save" || it == "notify" || it == "fetch" }
@@ -311,7 +317,7 @@ class RefreshMarketDataUseCaseTest {
     fun `R-108 첫 묶음이 한도 넘음이면 부르지 않는다`() = runTest {
         answer(firstBatch = failure(DataFetchError.RATE_LIMITED))
         var called = 0
-        useCase(twoBatches).invoke { called++ }
+        useCase(twoBatches).invoke(onBroad { called++ })
         assertEquals(0, called)
     }
 
@@ -319,7 +325,7 @@ class RefreshMarketDataUseCaseTest {
     fun `R-108 FRED가 연결 안 됨이면 부르지 않는다`() = runTest {
         answer(fred = failure(DataFetchError.NO_CONNECTION))
         var called = 0
-        useCase(twoBatches).invoke { called++ }
+        useCase(twoBatches).invoke(onBroad { called++ })
         assertEquals(0, called)
     }
 
@@ -327,7 +333,7 @@ class RefreshMarketDataUseCaseTest {
     fun `R-108 첫 묶음의 저장이 IOException이면 부르지 않는다`() = runTest {
         repository.failOnSaveIf = { "SPY" in it }
         var called = 0
-        useCase(twoBatches).invoke { called++ }
+        useCase(twoBatches).invoke(onBroad { called++ })
         assertEquals(0, called)
     }
 
@@ -335,7 +341,7 @@ class RefreshMarketDataUseCaseTest {
     fun `R-108 둘째 묶음만 실패하면 0초에 부르고 결과는 그 실패다`() = runTest {
         answer(secondBatch = failure(DataFetchError.NO_CONNECTION))
         val calls = mutableListOf<Long>()
-        val outcome = useCase(twoBatches).invoke { calls += currentTime }
+        val outcome = useCase(twoBatches).invoke(onBroad { calls += currentTime })
         assertEquals(listOf(0L), calls)
         assertEquals(RefreshOutcome.Failure(RefreshFailure.NO_CONNECTION), outcome)
     }
@@ -657,5 +663,212 @@ class RefreshMarketDataUseCaseTest {
         useCase(twoBatches)()
         assertEquals(listOf(startedAt.plusSeconds(65)), repository.savedStamps(RefreshStamp.FINISHED))
         assertEquals("saveStamp(FINISHED)", repository.callOrder.last())
+    }
+
+    // 단위 2: 최신이 아닌 것만 받기. 받아 둔 값 데이터 A, FRED 받은 때 지금 - 1시간, stale에 든 ETF만 최신 아님(받은 때 없음).
+
+    private val etfs = listOf("SPY", "QQQ", "SMH", "XLK")
+    private val etfFresh = Instant.parse("2026-11-23T22:00:00Z")
+
+    private fun storedWithStale(vararg stale: String) {
+        repository.setStored(dataA(), startedAt.minusSeconds(3600))
+        repository.setFetchedAt(etfs, etfFresh)
+        repository.setFetchedAt(stale.toList(), null)
+    }
+
+    // 기본 규칙의 ETF 열넷 모두 데이터 A의 SPY와 같은 값을 받아 둔다.
+    private fun dataWithAllDefaultEtfs(): MoodTestData.Builder {
+        val builder = dataA()
+        val days = MoodTestData.weekdays(MoodTestData.START, MoodTestData.END)
+        DefaultMoodRules.rules.targets().forEach { target -> days.forEach { builder.set(target.closeSeries.seriesId, it, 100.0) } }
+        return builder
+    }
+
+    @Test
+    fun `R-110 R-103 ETF 넷 최신이면 FRED만 받고 Twelve Data에는 요청하지 않으며 0초에 Success`() = runTest {
+        storedWithStale()
+
+        val outcome = useCase(twoBatches)()
+
+        assertEquals(RefreshOutcome.Success, outcome)
+        assertEquals(listOf(FRED), repository.fetchCalls.map { it.source })
+        assertEquals(fredIds.toSet(), repository.fetchCalls.single().requests.map { it.first }.toSet())
+        assertTrue(repository.savedStamps(RefreshStamp.TWELVE_DATA_REQUESTED).isEmpty())
+        assertEquals(0L, currentTime)
+    }
+
+    @Test
+    fun `R-103 ETF 넷 최신이면 Twelve Data에 30초 전에 보냈어도 0초에 돌아온다`() = runTest {
+        storedWithStale()
+        repository.stamps[RefreshStamp.TWELVE_DATA_REQUESTED] = Instant.parse("2026-11-24T00:59:30Z")
+
+        assertEquals(RefreshOutcome.Success, useCase(twoBatches)())
+        assertEquals(0L, currentTime)
+        assertTrue(repository.savedStamps(RefreshStamp.TWELVE_DATA_REQUESTED).isEmpty())
+    }
+
+    @Test
+    fun `R-110 SMH, XLK만 최신이 아니면 Twelve Data는 SMH, XLK 하나를 0초에 보낸다`() = runTest {
+        storedWithStale("SMH", "XLK")
+
+        useCase(twoBatches)()
+
+        assertEquals(listOf(listOf("SMH", "XLK") to 0L), twelveDataSent().map { it.ids to it.at })
+        val call = repository.fetchCalls.single { it.source == TWELVE_DATA }
+        assertEquals(listOf("SMH" to date("2017-11-23"), "XLK" to date("2017-11-23")), call.requests)
+    }
+
+    @Test
+    fun `R-110 QQQ, SMH, XLK가 최신이 아니면 QQQ, SMH를 0초에, XLK를 65초에 보낸다`() = runTest {
+        storedWithStale("QQQ", "SMH", "XLK")
+
+        useCase(twoBatches)()
+
+        assertEquals(listOf(listOf("QQQ", "SMH") to 0L, listOf("XLK") to 65_000L), twelveDataSent().map { it.ids to it.at })
+    }
+
+    @Test
+    fun `R-110 넷 모두 최신이 아니면 SPY, QQQ를 0초에, SMH, XLK를 65초에 보낸다`() = runTest {
+        storedWithStale(*etfs.toTypedArray())
+
+        useCase(twoBatches)()
+
+        assertEquals(listOf(listOf("SPY", "QQQ") to 0L, listOf("SMH", "XLK") to 65_000L), twelveDataSent().map { it.ids to it.at })
+    }
+
+    @Test
+    fun `R-110 기본 규칙과 기본 나눠 받기에서 XLC만 최신이 아니면 Twelve Data는 XLC 하나다`() = runTest {
+        rulesRepository.rules.value = DefaultMoodRules.rules
+        val stored = dataWithAllDefaultEtfs()
+        repository.setStored(stored, etfFresh)
+        repository.setFetchedAt(fredIds, startedAt.minusSeconds(3600))
+        repository.setFetchedAt(listOf("XLC"), null)
+
+        useCase()()
+
+        assertEquals(listOf(listOf("XLC")), twelveDataSent().map { it.ids })
+    }
+
+    @Test
+    fun `R-103 ETF 넷 최신이면 받기를 두 번 잇달아 해도 두 번 모두 FRED만 받고 기다리지 않는다`() = runTest {
+        storedWithStale()
+        val useCase = useCase(twoBatches)
+
+        useCase()
+        useCase()
+
+        assertEquals(listOf(FRED, FRED), repository.fetchCalls.map { it.source })
+        assertEquals(0L, currentTime)
+    }
+
+    @Test
+    fun `R-55 받다가 앱이 꺼져 첫 묶음만 저장된 뒤 다시 받으면 남은 SMH, XLK만 받는다`() = runTest {
+        repository.setStored(dataA(), startedAt.minusSeconds(3600))
+        repository.setFetchedAt(listOf("SPY", "QQQ"), Instant.parse("2026-11-24T00:59:00Z"))
+        repository.setFetchedAt(listOf("SMH", "XLK"), Instant.parse("2026-11-22T21:30:00Z"))
+
+        useCase(twoBatches)()
+
+        assertEquals(listOf(listOf("SMH", "XLK")), twelveDataSent().map { it.ids })
+    }
+
+    @Test
+    fun `R-41 SMH만 최신이 아니면 받는 것만 그 시작 날짜로 요청한다`() = runTest {
+        storedWithStale("SMH")
+
+        useCase()()
+
+        assertEquals(listOf("SMH" to date("2017-11-23")), repository.fetchCalls.single { it.source == TWELVE_DATA }.requests)
+        val fred = repository.fetchCalls.single { it.source == FRED }.requests
+        assertEquals(
+            mapOf(
+                YIELD_CURVE to date("2024-11-23"),
+                HIGH_YIELD to date("2024-11-23"),
+                "DFII10" to date("2020-11-23"),
+                "DGS10" to date("2024-11-23"),
+                "DFF" to date("2024-11-23"),
+                "CPIAUCSL" to date("2024-11-23"),
+            ),
+            fred.toMap(),
+        )
+        assertEquals(6, fred.size)
+    }
+
+    @Test
+    fun `R-54 받지 않은 SPY는 출처의 값이 달라도 받아 둔 값과 받은 때가 그대로다`() = runTest {
+        storedWithStale("SMH", "XLK")
+        repository.remote = dataA().set("SPY", "2026-11-23", 99.0)
+
+        useCase(twoBatches)()
+
+        assertEquals(100.0, repository.stored.value.values.getValue("SPY").last { it.date == date("2026-11-23") }.value, 0.0)
+        assertEquals(etfFresh, repository.fetchedAt["SPY"])
+    }
+
+    @Test
+    fun `R-113 받을 ETF는 첫 fetch보다 먼저 알린다`() = runTest {
+        storedWithStale("QQQ", "SMH", "XLK")
+        val decided = mutableListOf<List<String>>()
+        val listener = object : RefreshProgressListener {
+            override fun onEtfsDecided(seriesIds: List<String>) {
+                decided += seriesIds
+                repository.callOrder += "decided"
+            }
+        }
+
+        useCase(twoBatches)(listener)
+
+        assertEquals(listOf(listOf("QQQ", "SMH", "XLK")), decided)
+        assertTrue(repository.callOrder.indexOf("decided") < repository.callOrder.indexOf("fetch"))
+    }
+
+    @Test
+    fun `R-113 받을 ETF가 없으면 빈 목록을 알린다`() = runTest {
+        storedWithStale()
+        val decided = mutableListOf<List<String>>()
+
+        useCase(twoBatches)(object : RefreshProgressListener {
+            override fun onEtfsDecided(seriesIds: List<String>) {
+                decided += seriesIds
+            }
+        })
+
+        assertEquals(listOf(emptyList<String>()), decided)
+    }
+
+    @Test
+    fun `R-108 SPY가 최신이면 FRED가 저장된 뒤 0초에 한 번 부르고 첫 묶음을 기다리지 않는다`() = runTest {
+        storedWithStale("QQQ", "SMH", "XLK")
+        plan = { source, ids ->
+            if (source == TWELVE_DATA && "QQQ" in ids) delay(5_000)
+            null
+        }
+        val calls = mutableListOf<Long>()
+
+        useCase(twoBatches)(onBroad { calls += currentTime })
+
+        assertEquals(listOf(0L), calls)
+    }
+
+    @Test
+    fun `R-108 SPY가 최신이어도 FRED가 연결 안 됨이면 묶음이 성공해도 부르지 않는다`() = runTest {
+        storedWithStale("QQQ", "SMH", "XLK")
+        answer(fred = failure(DataFetchError.NO_CONNECTION))
+        var called = 0
+
+        useCase(twoBatches)(onBroad { called++ })
+
+        assertEquals(0, called)
+        assertTrue(repository.saveCalls.any { "QQQ" in it.values })
+    }
+
+    @Test
+    fun `R-108 ETF 넷 최신이면 FRED가 저장되면 부른다`() = runTest {
+        storedWithStale()
+        var called = 0
+
+        useCase(twoBatches)(onBroad { called++ })
+
+        assertEquals(1, called)
     }
 }

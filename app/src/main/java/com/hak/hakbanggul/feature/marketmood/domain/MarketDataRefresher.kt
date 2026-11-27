@@ -86,19 +86,20 @@ class MarketDataRefresher @Inject constructor(
             running?.let { return it to false }
             CompletableDeferred<Unit>().also {
                 running = it
-                _state.value = _state.value.copy(isRefreshing = true, broadMarketReceived = false)
+                _state.value = _state.value.copy(
+                    isRefreshing = true,
+                    broadMarketReceived = false,
+                    pendingSeriesIds = emptySet(),
+                    unsentCount = 0,
+                )
             }
         }
         // ATOMIC: 시작 전에 취소되어도 finally까지 돌아 받는 중이 풀린다.
         scope.launch(start = CoroutineStart.ATOMIC) {
             var outcome: RefreshOutcome = RefreshOutcome.Failure(RefreshFailure.OTHER)
             try {
-                // 이 받기가 아직 받는 중일 때만 전체 시장의 값을 받음으로 둔다. 묶음 사이를 기다리는 동안에도 받는 중이다.
-                outcome = refreshMarketData {
-                    synchronized(lock) {
-                        if (running === run) _state.value = _state.value.copy(broadMarketReceived = true)
-                    }
-                }
+                // 이 받기가 아직 받는 중일 때만 진행을 상태에 싣는다. 묶음 사이를 기다리는 동안에도 받는 중이다.
+                outcome = refreshMarketData(progressListener(run))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -109,12 +110,31 @@ class MarketDataRefresher @Inject constructor(
                 synchronized(lock) {
                     running = null
                     // 끝난 때는 RefreshMarketDataUseCase가 돌아오기 전에 적었다. 이 순서를 바꾸지 않는다.
-                    _state.value = RefreshState(isRefreshing = false, lastFailure = failure, broadMarketReceived = false)
+                    // 전체 시장의 값을 받음은 거짓, 진행 둘은 비운다(기본값).
+                    _state.value = RefreshState(isRefreshing = false, lastFailure = failure)
                 }
                 run.complete(Unit)
             }
         }
         return run to true
+    }
+
+    // 받기 한 번의 진행을 상태에 싣는다. 그 받기가 아직 받는 중일 때만 싣는다.
+    private fun progressListener(run: CompletableDeferred<Unit>) = object : RefreshProgressListener {
+        override fun onEtfsDecided(seriesIds: List<String>) = update(run) { it.copy(pendingSeriesIds = seriesIds.toSet()) }
+
+        override fun onBatchSent(unsentCount: Int) = update(run) { it.copy(unsentCount = unsentCount) }
+
+        override fun onRequestFinished(seriesIds: List<String>) =
+            update(run) { it.copy(pendingSeriesIds = it.pendingSeriesIds - seriesIds.toSet()) }
+
+        override fun onBroadMarketReceived() = update(run) { it.copy(broadMarketReceived = true) }
+    }
+
+    private fun update(run: CompletableDeferred<Unit>, change: (RefreshState) -> RefreshState) {
+        synchronized(lock) {
+            if (running === run) _state.value = change(_state.value)
+        }
     }
 
     // 받는 조건을 따지는 곳은 여기 하나다. onScreenShown도 WHEN_STALE로 이것을 쓴다.

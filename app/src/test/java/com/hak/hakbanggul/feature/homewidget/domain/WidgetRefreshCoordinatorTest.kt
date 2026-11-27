@@ -8,6 +8,7 @@ import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshTrigger.FIRST_P
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshTrigger.MANUAL
 import com.hak.hakbanggul.feature.homewidget.domain.WidgetRefreshTrigger.PERIODIC
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
+import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData
 import com.hak.hakbanggul.feature.marketmood.domain.MoodTestData.dataA
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -76,6 +77,7 @@ class WidgetRefreshCoordinatorTest {
     fun `R-21 최근에 성공하고 시작했어도 PERIODIC으로 받는다`() = runTest {
         val f = fixture()
         f.repository.setStored(dataA(), f.now.minus(Duration.ofMinutes(1)))
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         f.repository.lastStartedAt = f.now.minusSeconds(10)
         f.start()
         requestAndWait(f, PERIODIC)
@@ -94,6 +96,7 @@ class WidgetRefreshCoordinatorTest {
     @Test
     fun `R-35 시작한 지 1분 1초면 MANUAL로 받는다`() = runTest {
         val f = fixture()
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         f.repository.lastStartedAt = f.now.minusSeconds(61)
         f.start()
         requestAndWait(f, MANUAL)
@@ -112,6 +115,7 @@ class WidgetRefreshCoordinatorTest {
     @Test
     fun `R-38 시작한 때가 없으면 MANUAL로 받는다`() = runTest {
         val f = fixture().apply { start() }
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         requestAndWait(f, MANUAL)
         assertEquals(2, f.fetchCount)
     }
@@ -159,6 +163,7 @@ class WidgetRefreshCoordinatorTest {
     @Test
     fun `R-39 눌러 받는 중에 다시 누르면 곧바로 돌아오고 겹쳐 받지 않는다`() = runTest {
         val f = fixture().apply { start() }
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         val wait = f.holdFetch()
         launchCaller(f, MANUAL)
         runCurrent()
@@ -177,6 +182,7 @@ class WidgetRefreshCoordinatorTest {
     @Test
     fun `R-39 앱에서 받는 중에 누르면 그 받기가 끝날 때까지 눌러 받는 중이다`() = runTest {
         val f = fixture().apply { start() }
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         val wait = f.holdFetch()
         f.refresher.refresh()
         runCurrent()
@@ -295,6 +301,7 @@ class WidgetRefreshCoordinatorTest {
     @Test
     fun `R-43 기다리던 코루틴이 취소되면 풀리고 받기는 끝까지 이어져 저장된다`() = runTest {
         val f = fixture().apply { start() }
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         val wait = f.holdFetch()
         val (caller, _) = launchCaller(f, MANUAL)
         runCurrent()

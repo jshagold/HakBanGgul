@@ -94,7 +94,7 @@ class MarketMoodViewModelTest {
             overviewScope,
         )
         val refresher = MarketDataRefresher(
-            RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock),
+            RefreshMarketDataUseCase(repository, rulesRepository, calculator, FetchFreshness(), DEFAULT_PACING, clock),
             observeMood,
             observeKeys,
             repository,

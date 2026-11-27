@@ -47,7 +47,7 @@ class MarketDataRefresherTest {
         val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
         val observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
-        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, DEFAULT_PACING, clock)
+        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, FetchFreshness(), DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, FetchFreshness(), clock, appScope)
@@ -630,6 +630,8 @@ class MarketDataRefresherTest {
         clock.now = now.plusSeconds(30)
         val second = requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
         clock.now = now.plusSeconds(61)
+        // 셋째 받기도 ETF를 받게 앞 받기가 적은 ETF의 받은 때를 비운다.
+        repository.setFetchedAt(MoodTestData.STOCKS, null)
         val third = requestOn(refresher, RefreshCondition.WHEN_NOT_RECENTLY_STARTED)
 
         assertEquals(

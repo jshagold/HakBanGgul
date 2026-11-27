@@ -53,7 +53,7 @@ class MarketDataRefresherBatchTest {
         val clock = SchedulerClock(now, testScheduler)
         observeMood = ObserveMoodUseCase(rulesRepository, repository, calculator, UnconfinedTestDispatcher(testScheduler))
         val observeKeys = ObserveSourceKeysUseCase(rulesRepository, keys)
-        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, pacing, clock)
+        val refresh = RefreshMarketDataUseCase(repository, rulesRepository, calculator, FetchFreshness(), pacing, clock)
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
         return MarketDataRefresher(refresh, observeMood, observeKeys, repository, rulesRepository, FetchFreshness(), clock, appScope).also { runCurrent() }
     }
@@ -63,6 +63,14 @@ class MarketDataRefresherBatchTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { refresher.state.toList(states) }
         return states
     }
+
+    // 받기가 ETF 넷을 모두 받게 ETF의 받은 때를 비운다.
+    private fun etfsStale() = repository.setFetchedAt(MoodTestData.STOCKS, null)
+
+    // 있던 세 필드만 남기고 같은 것이 잇달아 나오면 하나로 둔다.
+    private fun List<RefreshState>.basic(): List<RefreshState> =
+        map { RefreshState(it.isRefreshing, it.lastFailure, it.broadMarketReceived) }
+            .fold(emptyList()) { acc, state -> if (acc.lastOrNull() == state) acc else acc + state }
 
     private fun answerFirstBatch(result: FetchResult) {
         val remote = repository.remote
@@ -76,6 +84,7 @@ class MarketDataRefresherBatchTest {
 
     @Test
     fun `R-108 FRED와 첫 묶음이 저장되면 받는 중인 채 참이 되고 끝나면 거짓이다`() = runTest {
+        etfsStale()
         repository.remote = dataA().set("SPY", "2026-11-23", 99.0)
         val refresher = newRefresher(twoBatches)
         val states = collectStates(refresher)
@@ -89,7 +98,7 @@ class MarketDataRefresherBatchTest {
                 RefreshState(isRefreshing = true, lastFailure = null, broadMarketReceived = false),
                 RefreshState(isRefreshing = true, lastFailure = null, broadMarketReceived = true),
             ),
-            states,
+            states.basic(),
         )
         assertEquals(0L, currentTime)
         // 그때의 판정은 새로 받은 SPY(2026-11-23 99.0)로 낸 것이다.
@@ -103,6 +112,7 @@ class MarketDataRefresherBatchTest {
 
     @Test
     fun `R-108 첫 묶음이 한도 넘음이면 받는 동안 계속 거짓이고 끝나면 RATE_LIMITED`() = runTest {
+        etfsStale()
         answerFirstBatch(FetchResult.Failure(DataFetchError.RATE_LIMITED))
         val refresher = newRefresher(twoBatches)
         val states = collectStates(refresher)
@@ -135,6 +145,7 @@ class MarketDataRefresherBatchTest {
 
     @Test
     fun `R-22 둘째 묶음을 기다리는 30초에 새로 고침을 다시 눌러도 새 받기를 시작하지 않는다`() = runTest {
+        etfsStale()
         val refresher = newRefresher(twoBatches)
         refresher.refresh()
         advanceTimeBy(30_000)
@@ -148,6 +159,7 @@ class MarketDataRefresherBatchTest {
 
     @Test
     fun `R-59 기다리는 동안 청하면 둘째 묶음까지 끝난 뒤 JOINED`() = runTest {
+        etfsStale()
         val refresher = newRefresher(twoBatches)
         refresher.refresh()
         advanceTimeBy(30_000)
@@ -163,6 +175,7 @@ class MarketDataRefresherBatchTest {
 
     @Test
     fun `R-55 기다리는 동안 청한 쪽이 기다리기를 그만둬도 둘째 묶음까지 받아 저장한다`() = runTest {
+        etfsStale()
         val refresher = newRefresher(twoBatches)
         val caller = CoroutineScope(Job() + StandardTestDispatcher(testScheduler))
         caller.launch { refresher.request(RefreshCondition.WHEN_KEYS_AVAILABLE) }

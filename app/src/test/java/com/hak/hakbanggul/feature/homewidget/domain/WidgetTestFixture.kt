@@ -73,7 +73,7 @@ class WidgetTestFixture(private val testScope: TestScope) {
 
     fun start() {
         val observeMood = ObserveMoodUseCase(rulesRepository, refresherRepository, calculator, UnconfinedTestDispatcher(testScope.testScheduler))
-        val refresh = RefreshMarketDataUseCase(refresherRepository, rulesRepository, calculator, DEFAULT_PACING, clock)
+        val refresh = RefreshMarketDataUseCase(refresherRepository, rulesRepository, calculator, FetchFreshness(), DEFAULT_PACING, clock)
         // 앱 범위를 흉내 낸다. backgroundScope의 일은 advanceUntilIdle이 돌리지 않아 따로 둔다.
         val appScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScope.testScheduler))
         refresher = MarketDataRefresher(

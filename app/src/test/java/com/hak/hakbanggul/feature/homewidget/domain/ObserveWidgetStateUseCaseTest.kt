@@ -172,6 +172,7 @@ class ObserveWidgetStateUseCaseTest {
     @Test
     fun `R-18 FRED의 키를 지웠다가 다시 넣으면 키 안내였다가 판정이다`() = runTest {
         val f = fixture().apply { start() }
+        f.repository.setFetchedAt(MoodTestData.STOCKS, null) // 받기가 ETF를 받게 받은 때를 비운다
         val states = collect(f)
         runCurrent()
 
