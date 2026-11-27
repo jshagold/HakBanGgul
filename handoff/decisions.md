@@ -18,6 +18,15 @@
 ### D-05 (전달 1) 받기를 여러 번 하는 있던 테스트의 전제 지키기
 단위 1의 "있던 테스트를 맞추는 법"대로 ETF를 받는 것을 전제한 테스트는 Given에서 ETF의 받은 때를 비웠다. 다만 MarketDataRefresherTest의 "R-60 WHEN_NOT_RECENTLY_STARTED 청으로 시작한 받기에서 1분을 넘어야 다시 받는다"는 첫 받기가 ETF의 받은 때를 적어 셋째 받기가 ETF를 받지 않게 되므로, 셋째 청 바로 앞에서 ETF의 받은 때를 비웠다. 기대 값(요청 수 4)은 그대로다. (R-60, P-58)
 
+### D-06 (전달 1) 계산 중인 상세 화면의 대상 글(ETF 기호)
+단위 3의 DetailUiState.Calculating은 대상을 UiText로 받는데, 장세 화면과 섹터 화면의 대상은 ETF 기호("SMH") 그 자체다. 기호를 UiText로 싣기 위해 글을 그대로 끼우기만 하는 문구 `detail_target_symbol`(`%1$s`, 번역하지 않음)을 strings.xml에 더했다. 지시에 적힌 다섯 문구 밖의 것이지만 화면에 새 글을 보이는 것은 아니다. (R-111, P-60)
+
+### D-07 (전달 1) 위쪽 줄을 규칙만으로 만드는 함수
+단위 3의 MoodUiMapper에 regimeCalculating(rules, targetId), pricePositionCalculating(rules, targetId), rateBurdenCalculating(), sectorCalculating(rules, targetId)를 두었다. 넷 모두 DetailUiState.Calculating을 돌려주고, 대상을 규칙에서 찾지 못하면 null이다(ViewModel이 BackToMain으로 바꾼다). Shown일 때 화면이 그리는 글과 같은 문구(regime_broad_market, regime_sector, price_position_name, target_with_symbol, rate_burden_name, 대상 이름)를 쓴다. detailState는 계산 중일 때 부를 함수(calculating)를 더 받는다. (R-111, P-46, P-47)
+
+### D-08 (전달 1) 한 벌을 냈는지 적는 때
+단위 3의 ObserveMarketOverviewUseCase는 앱 범위에서 나눠 주는 계산이 Ready를 만든 때 "냈음"을 적는다(받는 쪽에 닿은 때가 아니라). 그래서 계산이 끝난 뒤 모으기 시작한 쪽은 Calculating 없이 들고 있던 Ready를 바로 받는다. 아직 내지 않았을 때 모으기 시작한 쪽은 규칙의 첫 값으로 Calculating을 먼저 받는다. (R-04, R-111, P-60)
+
 ## BACKLOG
 없음
 

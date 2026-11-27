@@ -25,6 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -178,15 +180,6 @@ class DetailViewModelsTest {
     }
 
     @Test
-    fun `R-99 받아 둔 값이 비어 한 벌이 없으면 첫 화면으로 돌아간다`() = runTest {
-        repository.setStored(null, null)
-        setUp()
-        listOf(regimeVm().uiState, priceVm().uiState, rateVm().uiState, sectorVm().uiState).forEach {
-            assertEquals(DetailUiState.BackToMain, it.value)
-        }
-    }
-
-    @Test
     fun `R-99 받아 둔 값에서 SMH가 빠지면 SMH의 화면은 돌아가고 전체 시장의 장세 화면은 그대로`() = runTest {
         setUp()
         val sector = sectorVm()
@@ -212,16 +205,95 @@ class DetailViewModelsTest {
         }
     }
 
-    @Test
-    fun `R-99 한 벌을 아직 받지 못하면 Undecided`() = runTest {
-        setUp(StandardTestDispatcher(testScheduler))
-        val regime = RegimeViewModel(handle("broad_market"), overview, sourceKeys, mapper)
-        val rate = RateBurdenViewModel(overview, sourceKeys, mapper)
-        assertEquals(DetailUiState.Undecided, regime.uiState.value)
-        assertEquals(DetailUiState.Undecided, rate.uiState.value)
+    // R-111, R-99 계산 중
 
+    private fun symbolText(symbol: String) = UiText(R.string.detail_target_symbol, listOf(symbol))
+
+    private fun TestScope.calculatingVms(): List<StateFlow<out DetailUiState<*>>> = listOf(
+        RegimeViewModel(handle("broad_market"), overview, sourceKeys, mapper).uiState,
+        RegimeViewModel(handle("semiconductors"), overview, sourceKeys, mapper).uiState,
+        PricePositionViewModel(handle("broad_market"), overview, sourceKeys, mapper).uiState,
+        RateBurdenViewModel(overview, sourceKeys, mapper).uiState,
+        SectorViewModel(handle("semiconductors"), overview, sourceKeys, mapper).uiState,
+    )
+
+    @Test
+    fun `R-111 계산 중이면 네 화면 모두 위쪽 줄의 이름과 대상으로 Calculating`() = runTest {
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        setUp(dispatcher)
+
+        val states = calculatingVms().map { it.value }
+
+        assertEquals(
+            listOf(
+                DetailUiState.Calculating(UiText(R.string.regime_broad_market), null),
+                DetailUiState.Calculating(UiText(R.string.regime_sector, listOf(UiText(R.string.target_semiconductors))), symbolText("SMH")),
+                DetailUiState.Calculating(UiText(R.string.price_position_name), withSymbol(R.string.target_broad_market, "SPY")),
+                DetailUiState.Calculating(UiText(R.string.rate_burden_name), null),
+                DetailUiState.Calculating(UiText(R.string.target_semiconductors), symbolText("SMH")),
+            ),
+            states,
+        )
+    }
+
+    @Test
+    fun `R-111 R-99 디스패처를 돌리면 BackToMain 없이 Shown이 되고 위쪽 줄 글은 Calculating의 것과 같다`() = runTest {
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        setUp(dispatcher)
+        val flows = calculatingVms()
+        val histories = flows.map { flow ->
+            mutableListOf<DetailUiState<*>>().also { list -> backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { flow.toList(list) } }
+        }
+
+        dispatcher.release()
         runCurrent()
 
-        assertTrue(regime.uiState.value is DetailUiState.Shown<*>)
+        histories.forEach { history ->
+            assertTrue(history.last() is DetailUiState.Shown<*>)
+            assertTrue(history.none { it is DetailUiState.BackToMain })
+        }
+        val calculating = histories.map { it.first() as DetailUiState.Calculating }
+        val broadRegime = (histories[0].last() as DetailUiState.Shown<*>).content as RegimeDetailUiState
+        assertEquals(calculating[0].title, broadRegime.title)
+        assertNull(broadRegime.symbol)
+        val semisRegime = (histories[1].last() as DetailUiState.Shown<*>).content as RegimeDetailUiState
+        assertEquals(calculating[1].title, semisRegime.title)
+        assertEquals(calculating[1].target, symbolText(semisRegime.symbol!!))
+        val price = (histories[2].last() as DetailUiState.Shown<*>).content as PricePositionDetailUiState
+        assertEquals(calculating[2].target, price.targetText)
+        val sector = (histories[4].last() as DetailUiState.Shown<*>).content as SectorUiState
+        assertEquals(calculating[4].title, sector.name)
+        assertEquals(calculating[4].target, symbolText(sector.symbol))
+    }
+
+    @Test
+    fun `R-111 계산 중이어도 Twelve Data 키가 틀림이면 BackToMain`() = runTest {
+        keys.set(TWELVE_DATA, INVALID)
+        setUp(HeldDispatcher(StandardTestDispatcher(testScheduler)))
+        calculatingVms().forEach { assertEquals(DetailUiState.BackToMain, it.value) }
+    }
+
+    @Test
+    fun `R-111 계산 중이어도 규칙에 없는 대상이면 BackToMain`() = runTest {
+        setUp(HeldDispatcher(StandardTestDispatcher(testScheduler)))
+        listOf(
+            RegimeViewModel(handle("unknown"), overview, sourceKeys, mapper).uiState,
+            PricePositionViewModel(handle("unknown"), overview, sourceKeys, mapper).uiState,
+            SectorViewModel(handle("unknown"), overview, sourceKeys, mapper).uiState,
+        ).forEach { assertEquals(DetailUiState.BackToMain, it.value) }
+    }
+
+    @Test
+    fun `R-111 R-99 받아 둔 값이 없으면 계산 중에는 Calculating, Ready(null)이 되면 BackToMain`() = runTest {
+        repository.setStored(null, null)
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        setUp(dispatcher)
+        val flows = calculatingVms()
+        flows.forEach { assertTrue(it.value is DetailUiState.Calculating) }
+
+        dispatcher.release()
+        runCurrent()
+
+        flows.forEach { assertEquals(DetailUiState.BackToMain, it.value) }
     }
 }

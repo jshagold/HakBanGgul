@@ -183,4 +183,10 @@
     <string name="sector_loading">받는 중</string>
     <string name="sector_failed">받지 못함</string>
     <string name="sector_as_of">%1$d월 %2$d일 종가 기준</string>
+    <string name="sector_refreshing_with_date">받는 중 · %1$d월 %2$d일 값</string>
+    <string name="mood_calculating_title">판정을 계산하는 중</string>
+    <string name="mood_calculating_message">받아 둔 값으로 계산하고 있습니다.</string>
+    <string name="waiting_banner_title">섹터 %1$d개는 1분쯤 뒤에 받습니다</string>
+    <string name="waiting_banner_message">무료 요금제는 1분에 8종목까지 받을 수 있습니다. 그동안 받아 둔 값으로 보여 줍니다.</string>
+    <string name="detail_target_symbol" translatable="false">%1$s</string>
 </resources>

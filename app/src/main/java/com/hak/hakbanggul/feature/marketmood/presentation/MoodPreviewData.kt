@@ -151,6 +151,7 @@ internal object MoodPreviewData {
                 name = UiText(s.nameRes),
                 symbol = s.symbol,
                 asOfText = if (datedLast && index == sectors.lastIndex) UiText(R.string.sector_as_of, listOf(11, 21)) else null,
+                refreshingText = null,
                 content = if (isStatus) {
                     SectorRowContent.Status(UiText(statusRes))
                 } else {

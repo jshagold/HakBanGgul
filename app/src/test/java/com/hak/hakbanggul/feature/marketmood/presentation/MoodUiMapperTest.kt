@@ -42,8 +42,9 @@ class MoodUiMapperTest {
     private fun overview(builder: MoodTestData.Builder, rules: MoodRules = this.rules): MarketOverview =
         requireNotNull(calculator.assess(rules, builder.build())) { "한 벌을 낼 수 있어야 한다" }
 
-    private fun main(builder: MoodTestData.Builder, rules: MoodRules = this.rules, refreshing: Boolean = false) =
-        mapper.mainScreen(overview(builder, rules), refreshing)
+    // pending: 받을 차례인 ETF
+    private fun main(builder: MoodTestData.Builder, rules: MoodRules = this.rules, pending: Set<String> = emptySet()) =
+        mapper.mainScreen(overview(builder, rules), pending)
 
     private fun regime(builder: MoodTestData.Builder, id: String = "broad_market", rules: MoodRules = this.rules) =
         requireNotNull(mapper.regimeDetail(overview(builder, rules), id))
@@ -649,6 +650,7 @@ class MoodUiMapperTest {
                     name = UiText(nameRes),
                     symbol = symbol,
                     asOfText = null,
+                    refreshingText = null,
                     content = SectorRowContent.Values(
                         MarketStage.BULL,
                         stage(R.string.stage_bull),
@@ -676,9 +678,47 @@ class MoodUiMapperTest {
         assertEquals(SectorRowContent.Status(UiText(R.string.sector_failed)), failed.content)
         assertFalse(failed.clickable)
         assertNull(failed.asOfText)
-        val loading = main(dataA().removeSeries("SMH"), refreshing = true).sectors[1]
+        val loading = main(dataA().removeSeries("SMH"), pending = setOf("SMH")).sectors[1]
         assertEquals(SectorRowContent.Status(UiText(R.string.sector_loading)), loading.content)
         assertFalse(loading.clickable)
+    }
+
+    // R-113 받을 차례인 섹터 줄
+
+    @Test
+    fun `R-113 받을 차례가 QQQ면 QQQ 줄은 값 두 칸에 받는 중이고 다른 줄은 받는 중 글이 없다`() {
+        val rows = main(dataA(), pending = setOf("QQQ")).sectors
+        assertTrue(rows[0].content is SectorRowContent.Values)
+        assertTrue(rows[0].clickable)
+        assertEquals(UiText(R.string.sector_loading), rows[0].refreshingText)
+        assertNull(rows[0].asOfText)
+        assertNull(rows[1].refreshingText)
+        assertNull(rows[2].refreshingText)
+    }
+
+    @Test
+    fun `R-113 R-83 QQQ의 기준 날짜가 다르고 받을 차례면 날짜를 붙인 받는 중, 아니면 기준 날짜 줄`() {
+        val builder = dataA().remove("QQQ", "2026-11-23")
+        val refreshing = main(builder, pending = setOf("QQQ")).sectors[0]
+        assertEquals(UiText(R.string.sector_refreshing_with_date, listOf(11, 20)), refreshing.refreshingText)
+        assertNull(refreshing.asOfText)
+
+        val notRefreshing = main(builder, pending = emptySet()).sectors[0]
+        assertNull(notRefreshing.refreshingText)
+        assertEquals(UiText(R.string.sector_as_of, listOf(11, 20)), notRefreshing.asOfText)
+    }
+
+    @Test
+    fun `R-113 R-84 SMH가 없을 때 받을 차례면 받는 중, 받을 차례가 아니면 받지 못함`() {
+        val loading = main(dataA().removeSeries("SMH"), pending = setOf("SMH")).sectors[1]
+        assertEquals(SectorRowContent.Status(UiText(R.string.sector_loading)), loading.content)
+        assertFalse(loading.clickable)
+        assertNull(loading.refreshingText)
+        assertNull(loading.asOfText)
+
+        val failed = main(dataA().removeSeries("SMH"), pending = setOf("QQQ")).sectors[1]
+        assertEquals(SectorRowContent.Status(UiText(R.string.sector_failed)), failed.content)
+        assertNull(failed.refreshingText)
     }
 
     @Test

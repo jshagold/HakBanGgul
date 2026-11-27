@@ -8,7 +8,9 @@ import com.hak.hakbanggul.feature.marketmood.domain.IndicatorEvidence
 import com.hak.hakbanggul.feature.marketmood.domain.IndicatorInput
 import com.hak.hakbanggul.feature.marketmood.domain.MarketOverview
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
+import com.hak.hakbanggul.feature.marketmood.domain.MarketTarget
 import com.hak.hakbanggul.feature.marketmood.domain.MoodAssessment
+import com.hak.hakbanggul.feature.marketmood.domain.MoodRules
 import com.hak.hakbanggul.feature.marketmood.domain.PeriodContent
 import com.hak.hakbanggul.feature.marketmood.domain.PricePositionAssessment
 import com.hak.hakbanggul.feature.marketmood.domain.RateBurdenAssessment
@@ -26,8 +28,8 @@ class MoodUiMapper @Inject constructor() {
 
     private val formatter = MoodTextFormatter()
 
-    // 첫 화면의 판정. isRefreshing은 섹터 줄의 상태 글("받는 중"/"받지 못함")을 고르는 데 쓴다.
-    fun mainScreen(overview: MarketOverview, isRefreshing: Boolean): MoodUiState {
+    // 첫 화면의 판정. pendingSeriesIds(받을 차례인 ETF)는 섹터 줄의 받는 중을 고르는 데 쓴다.
+    fun mainScreen(overview: MarketOverview, pendingSeriesIds: Set<String>): MoodUiState {
         val mood = overview.mood
         return MoodUiState(
             broadMarketId = overview.rules.broadMarket.id,
@@ -41,9 +43,40 @@ class MoodUiMapper @Inject constructor() {
                 regimeText = UiText(R.string.sectors_header_regime, listOf(formatter.periodName(overview.rules.regime.mainPeriod().length))),
                 pricePositionText = UiText(R.string.sectors_header_price, listOf(formatter.periodName(overview.rules.valuation.mainPeriod().length))),
             ),
-            sectors = overview.sectors.map { sectorRow(overview, it, isRefreshing) },
+            sectors = overview.sectors.map { sectorRow(overview, it, it.target.closeSeries.seriesId in pendingSeriesIds) },
         )
     }
+
+    // 계산 중인 상세 화면의 위쪽 줄. 규칙만으로 만들고, Shown일 때 화면이 그리는 위쪽 줄과 같은 글이다.
+    // 대상을 규칙에서 찾지 못하면 null이다.
+
+    // 장세 화면: "전체 장세" / "{섹터 이름} 장세"와 섹터만 ETF 기호
+    fun regimeCalculating(rules: MoodRules, targetId: String): DetailUiState.Calculating? {
+        val target = rules.target(targetId) ?: return null
+        val isBroadMarket = target.id == rules.broadMarket.id
+        return DetailUiState.Calculating(
+            title = TargetLabels.regimeName(target, isBroadMarket),
+            target = if (isBroadMarket) null else symbolText(target),
+        )
+    }
+
+    // 주가 위치 화면: "주가 위치"와 "{대상 이름} {ETF 기호}"
+    fun pricePositionCalculating(rules: MoodRules, targetId: String): DetailUiState.Calculating? {
+        val target = rules.target(targetId) ?: return null
+        return DetailUiState.Calculating(UiText(R.string.price_position_name), TargetLabels.nameWithSymbol(target))
+    }
+
+    // 금리 부담 화면: "금리 부담"과 대상 없음
+    fun rateBurdenCalculating(): DetailUiState.Calculating =
+        DetailUiState.Calculating(UiText(R.string.rate_burden_name), null)
+
+    // 섹터 화면: 섹터 이름과 ETF 기호
+    fun sectorCalculating(rules: MoodRules, targetId: String): DetailUiState.Calculating? {
+        val target = rules.target(targetId) ?: return null
+        return DetailUiState.Calculating(TargetLabels.name(target), symbolText(target))
+    }
+
+    private fun symbolText(target: MarketTarget) = UiText(R.string.detail_target_symbol, listOf(TargetLabels.symbol(target)))
 
     // 장세 화면. 대상을 찾지 못하거나 메인 장세를 낼 수 없으면 null이다.
     fun regimeDetail(overview: MarketOverview, targetId: String): RegimeDetailUiState? {
@@ -465,7 +498,8 @@ class MoodUiMapper @Inject constructor() {
 
     // 섹터 줄
 
-    private fun sectorRow(overview: MarketOverview, target: TargetOverview, isRefreshing: Boolean): SectorRowUiState {
+    // refreshing: 그 섹터의 종가 시리즈가 받을 차례인지
+    private fun sectorRow(overview: MarketOverview, target: TargetOverview, refreshing: Boolean): SectorRowUiState {
         val regime = target.mainRegime()
         val price = target.mainPricePosition()
         val values = if (regime != null && price != null) {
@@ -479,16 +513,23 @@ class MoodUiMapper @Inject constructor() {
             null
         }
         val asOfDate = target.asOfDate
+        // 값을 보이는 줄에서 그 섹터의 기준 날짜가 전체 시장의 것과 다른지
+        val otherDate = if (values != null && asOfDate != null && asOfDate != overview.broadMarket.asOfDate) asOfDate else null
         return SectorRowUiState(
             targetId = target.target.id,
             name = TargetLabels.name(target.target),
             symbol = TargetLabels.symbol(target.target),
-            asOfText = if (values != null && asOfDate != null && asOfDate != overview.broadMarket.asOfDate) {
-                UiText(R.string.sector_as_of, listOf(asOfDate.monthValue, asOfDate.dayOfMonth))
+            asOfText = if (!refreshing && otherDate != null) {
+                UiText(R.string.sector_as_of, listOf(otherDate.monthValue, otherDate.dayOfMonth))
             } else {
                 null
             },
-            content = values ?: SectorRowContent.Status(UiText(if (isRefreshing) R.string.sector_loading else R.string.sector_failed)),
+            refreshingText = when {
+                values == null || !refreshing -> null
+                otherDate != null -> UiText(R.string.sector_refreshing_with_date, listOf(otherDate.monthValue, otherDate.dayOfMonth))
+                else -> UiText(R.string.sector_loading)
+            },
+            content = values ?: SectorRowContent.Status(UiText(if (refreshing) R.string.sector_loading else R.string.sector_failed)),
             clickable = values != null,
         )
     }

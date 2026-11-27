@@ -8,6 +8,9 @@ sealed interface DetailUiState<out T> {
     // 한 벌과 키 쓸 수 있음 여부를 받기 전
     data object Undecided : DetailUiState<Nothing>
 
+    // 계산 중. 위쪽 줄에 그릴 이름과 대상(없으면 null)
+    data class Calculating(val title: UiText, val target: UiText?) : DetailUiState<Nothing>
+
     data class Shown<T>(val content: T) : DetailUiState<T>
 
     // 키가 모두 쓸 수 있지 않거나, 한 벌이 없거나, 대상을 찾지 못하거나, 메인 콘텐츠를 낼 수 없음

@@ -21,6 +21,8 @@ import com.hak.hakbanggul.feature.marketmood.domain.FakeMarketDataRepository
 import com.hak.hakbanggul.feature.marketmood.domain.FakeMoodRulesRepository
 import com.hak.hakbanggul.feature.marketmood.domain.FetchResult
 import com.hak.hakbanggul.feature.marketmood.domain.FetchFreshness
+import com.hak.hakbanggul.feature.marketmood.domain.FetchPacing
+import com.hak.hakbanggul.feature.marketmood.domain.RefreshStamp
 import com.hak.hakbanggul.feature.marketmood.domain.MarketDataRefresher
 import com.hak.hakbanggul.feature.marketmood.domain.MarketStage
 import com.hak.hakbanggul.feature.marketmood.domain.MoodCalculator
@@ -45,6 +47,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -78,7 +84,11 @@ class MarketMoodViewModelTest {
     }
 
     // overviewDispatcher: 한 벌을 계산하는 디스패처. 돌지 않는 디스패처를 넘기면 한 벌이 오지 않는다.
-    private fun TestScope.newViewModel(overviewDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(testScheduler)): MarketMoodViewModel {
+    // pacing: 받기의 나눠 받기. 기다림 띠를 볼 때는 묶음 둘 규칙으로 만든다.
+    private fun TestScope.newViewModel(
+        overviewDispatcher: CoroutineDispatcher = UnconfinedTestDispatcher(testScheduler),
+        pacing: FetchPacing = DEFAULT_PACING,
+    ): MarketMoodViewModel {
         Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
         val clock = FakeClock(now)
         val calculator = MoodCalculator(RegimeCalculator(), ValuationCalculator())
@@ -94,7 +104,7 @@ class MarketMoodViewModelTest {
             overviewScope,
         )
         val refresher = MarketDataRefresher(
-            RefreshMarketDataUseCase(repository, rulesRepository, calculator, FetchFreshness(), DEFAULT_PACING, clock),
+            RefreshMarketDataUseCase(repository, rulesRepository, calculator, FetchFreshness(), pacing, clock),
             observeMood,
             observeKeys,
             repository,
@@ -483,25 +493,79 @@ class MarketMoodViewModelTest {
         }
     }
 
-    // R-22 한 벌이 처음 오기 전
+    // R-04, R-112, R-22, R-24 계산 중
 
     @Test
-    fun `R-22 한 벌이 오기 전에는 Undecided이고 받는 중이면 새로 고침 자리가 REFRESHING이다`() = runTest {
+    fun `R-04 계산 중이고 받는 중이 아니면 Calculating, ENABLED, 띠 없음이고 디스패처를 돌리면 Assessment`() = runTest {
+        stored(dataA())
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        val viewModel = newViewModel(dispatcher)
+
+        assertEquals(MoodBody.Calculating, viewModel.body)
+        assertEquals(RefreshButtonState.ENABLED, viewModel.uiState.value.refreshButton)
+        assertNull(viewModel.uiState.value.banner)
+        assertNull(viewModel.uiState.value.waitingBanner)
+
+        dispatcher.release()
+        runCurrent()
+
+        assertTrue(viewModel.body is MoodBody.Assessment)
+    }
+
+    @Test
+    fun `R-22 계산 중에 받는 중이면 Calculating이고 새로 고침 자리가 REFRESHING이다`() = runTest {
         stored(dataA())
         holdFetch()
-        val viewModel = newViewModel(NeverDispatcher)
-        assertEquals(MoodBody.Undecided, viewModel.body)
-        assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+        val viewModel = newViewModel(HeldDispatcher(StandardTestDispatcher(testScheduler)))
 
         viewModel.onRefreshClick()
         runCurrent()
 
-        assertEquals(MoodBody.Undecided, viewModel.body)
+        assertEquals(MoodBody.Calculating, viewModel.body)
         assertEquals(RefreshButtonState.REFRESHING, viewModel.uiState.value.refreshButton)
         assertNull(viewModel.uiState.value.banner)
         pendingFetch.complete(Unit)
         advanceUntilIdle()
-        assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+        assertEquals(RefreshButtonState.ENABLED, viewModel.uiState.value.refreshButton)
+    }
+
+    @Test
+    fun `R-112 판정을 본 뒤 값이 바뀌어 다시 계산하는 동안 판정은 그대로이고 돌리면 새 판정`() = runTest {
+        stored(dataA())
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        val viewModel = newViewModel(dispatcher)
+        dispatcher.release()
+        runCurrent()
+        assertEquals("+0.77", viewModel.mood.regime.compositeScoreText)
+        dispatcher.hold()
+
+        stored(dataB())
+        runCurrent()
+
+        assertEquals("+0.77", viewModel.mood.regime.compositeScoreText)
+
+        dispatcher.release()
+        runCurrent()
+
+        assertEquals("+0.15", viewModel.mood.regime.compositeScoreText)
+    }
+
+    @Test
+    fun `R-04 받아 둔 값 없이 받는 중이면 계산 중에는 Calculating, 돌리면 Loading`() = runTest {
+        holdFetch()
+        val dispatcher = HeldDispatcher(StandardTestDispatcher(testScheduler))
+        val viewModel = newViewModel(dispatcher)
+        viewModel.onRefreshClick()
+        runCurrent()
+
+        assertEquals(MoodBody.Calculating, viewModel.body)
+
+        dispatcher.release()
+        runCurrent()
+
+        assertEquals(MoodBody.Loading, viewModel.body)
+        pendingFetch.complete(Unit)
+        advanceUntilIdle()
     }
 
     @Test
@@ -510,6 +574,111 @@ class MarketMoodViewModelTest {
         val viewModel = newViewModel(NeverDispatcher)
         assertTrue(viewModel.body is MoodBody.KeyGuide)
         assertEquals(RefreshButtonState.DISABLED, viewModel.uiState.value.refreshButton)
+    }
+
+    // R-114, R-02, R-18 띠 고르기 (묶음 둘 규칙, 데이터 A, 넷 모두 최신 아님)
+
+    private val twoBatches = FetchPacing(2, 65.seconds, 10.seconds)
+
+    private val waitingTitle2 = UiText(R.string.waiting_banner_title, listOf(2))
+    private val waitingMessage = UiText(R.string.waiting_banner_message)
+
+    // 1초씩 가상 시간을 보내며 그 조건이 될 때까지 기다린다.
+    private fun TestScope.advanceUntil(limitSeconds: Int = 300, condition: () -> Boolean) {
+        repeat(limitSeconds) {
+            if (condition()) return
+            advanceTimeBy(1_000)
+            runCurrent()
+        }
+        assertTrue("조건이 되지 않음", condition())
+    }
+
+    @Test
+    fun `R-114 첫 묶음을 보낸 뒤에만 기다림 띠가 있고 둘째 묶음을 보내면 사라진다`() = runTest {
+        stored(dataA())
+        repository.stamps[RefreshStamp.TWELVE_DATA_REQUESTED] = Instant.parse("2026-11-24T00:59:30Z")
+        val viewModel = newViewModel(pacing = twoBatches)
+        val states = mutableListOf<MarketMoodUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.toList(states) }
+
+        viewModel.onRefreshClick()
+        runCurrent()
+        advanceTimeBy(34_000)
+        runCurrent()
+        assertNull(viewModel.uiState.value.waitingBanner)
+
+        advanceTimeBy(1_001)
+        runCurrent()
+        val waiting = viewModel.uiState.value
+        assertEquals(WaitingBannerUiState(waitingTitle2, waitingMessage), waiting.waitingBanner)
+        assertNull(waiting.banner)
+
+        advanceTimeBy(64_000)
+        runCurrent()
+        assertEquals(WaitingBannerUiState(waitingTitle2, waitingMessage), viewModel.uiState.value.waitingBanner)
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertNull(viewModel.uiState.value.waitingBanner)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.waitingBanner)
+        assertNull(viewModel.uiState.value.banner)
+        assertTrue(states.none { it.waitingBanner != null && it.banner != null })
+    }
+
+    @Test
+    fun `R-114 R-18 안내 띠가 있어도 첫 묶음을 보낸 뒤에는 기다림 띠만, 둘째 묶음이 실패하면 안내 띠만`() = runTest {
+        stored(dataA())
+        failFetch(DataFetchError.NO_CONNECTION)
+        val viewModel = newViewModel(pacing = twoBatches)
+        viewModel.onRefreshClick()
+        advanceUntilIdle()
+        assertNotNull(viewModel.uiState.value.banner)
+
+        val remote = repository.remote
+        repository.fetchAnswer = { _, requests ->
+            val ids = requests.map { it.series.seriesId }
+            if ("SMH" in ids) FetchResult.Failure(DataFetchError.NO_CONNECTION) else FetchResult.Success(remote.build(ids))
+        }
+        viewModel.onRefreshClick()
+        runCurrent()
+        advanceUntil { viewModel.uiState.value.waitingBanner != null }
+
+        assertNull(viewModel.uiState.value.banner)
+
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.waitingBanner)
+        assertEquals(UiText(R.string.banner_stale_title), viewModel.uiState.value.banner?.title)
+    }
+
+    @Test
+    fun `R-114 받아 둔 값이 없어 Loading이면 첫 묶음을 보낸 뒤에도 기다림 띠가 없다`() = runTest {
+        holdFetch()
+        val viewModel = newViewModel(pacing = twoBatches)
+
+        viewModel.onRefreshClick()
+        runCurrent()
+
+        assertEquals(MoodBody.Loading, viewModel.body)
+        assertNull(viewModel.uiState.value.waitingBanner)
+        pendingFetch.complete(Unit)
+        advanceUntilIdle()
+    }
+
+    @Test
+    fun `R-114 ETF 넷 최신이면 받는 동안 기다림 띠가 늘 없다`() = runTest {
+        stored(dataA())
+        repository.setFetchedAt(MoodTestData.STOCKS, Instant.parse("2026-11-23T22:00:00Z"))
+        val viewModel = newViewModel(pacing = twoBatches)
+        val states = mutableListOf<MarketMoodUiState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.uiState.toList(states) }
+
+        viewModel.onRefreshClick()
+        advanceUntilIdle()
+
+        assertTrue(states.any { it.refreshButton == RefreshButtonState.REFRESHING })
+        assertTrue(states.all { it.waitingBanner == null })
     }
 }
 

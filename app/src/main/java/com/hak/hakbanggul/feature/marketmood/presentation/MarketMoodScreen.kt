@@ -135,6 +135,7 @@ private fun MarketMoodContent(
             uiState.banner?.let { Banner(it, onRetryClick) }
             when (val body = uiState.body) {
                 MoodBody.Undecided -> Unit
+                MoodBody.Calculating -> Unit
                 is MoodBody.KeyGuide -> KeyGuideCard(body.rows, onOpenSettings)
                 is MoodBody.Assessment -> AssessmentBody(body.mood, onOpenRegime, onOpenPricePosition, onOpenRateBurden, onOpenSector)
                 MoodBody.Loading -> LoadingCard()
@@ -371,7 +372,7 @@ private fun assessmentState(
     mood: MoodUiState,
     banner: BannerUiState? = null,
     refreshButton: RefreshButtonState = RefreshButtonState.ENABLED,
-) = MarketMoodUiState(refreshButton, banner, MoodBody.Assessment(mood))
+) = MarketMoodUiState(refreshButton, banner, null, MoodBody.Assessment(mood))
 
 @Preview(name = "시장 분위기 · 둘째 묶음: 첫 화면 (전체 장세, 섹터별)", widthDp = 390, heightDp = 1900)
 @Composable
@@ -459,6 +460,7 @@ private fun KeyGuidePreview() = Preview(
     MarketMoodUiState(
         RefreshButtonState.DISABLED,
         null,
+        null,
         MoodBody.KeyGuide(
             listOf(
                 KeyGuideRow(
@@ -480,10 +482,10 @@ private fun KeyGuidePreview() = Preview(
 
 @Preview(name = "시장 분위기 · 받는 중", widthDp = 390, heightDp = 844)
 @Composable
-private fun LoadingPreview() = Preview(MarketMoodUiState(RefreshButtonState.REFRESHING, null, MoodBody.Loading))
+private fun LoadingPreview() = Preview(MarketMoodUiState(RefreshButtonState.REFRESHING, null, null, MoodBody.Loading))
 
 @Preview(name = "시장 분위기 · 한 번도 받지 못했을 때", widthDp = 390, heightDp = 844)
 @Composable
 private fun FailedPreview() = Preview(
-    MarketMoodUiState(RefreshButtonState.ENABLED, null, MoodBody.Failed(UiText(R.string.mood_failed_no_connection))),
+    MarketMoodUiState(RefreshButtonState.ENABLED, null, null, MoodBody.Failed(UiText(R.string.mood_failed_no_connection))),
 )

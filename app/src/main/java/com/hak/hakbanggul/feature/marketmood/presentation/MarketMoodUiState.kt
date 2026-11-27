@@ -11,8 +11,10 @@ import com.hak.hakbanggul.feature.marketmood.domain.ValuationStage
 // 시장 분위기 화면의 상태
 data class MarketMoodUiState(
     val refreshButton: RefreshButtonState,
-    // 있을 때만 보이는 안내 띠
+    // 있을 때만 보이는 안내 띠. 기다림 띠와 함께 있지 않다.
     val banner: BannerUiState?,
+    // 있을 때만 보이는 기다림 띠. 안내 띠와 함께 있지 않다.
+    val waitingBanner: WaitingBannerUiState?,
     val body: MoodBody,
 )
 
@@ -32,11 +34,21 @@ data class BannerUiState(
     val message: UiText,
 )
 
+// 용어: 기다림 띠
+// WaitingBanner: 섹터 일부를 1분쯤 뒤에 받는다는 띠. 두 줄(첫 줄 굵게)이고 버튼이 없다.
+data class WaitingBannerUiState(
+    val title: UiText,
+    val message: UiText,
+)
+
 sealed interface MoodBody {
     // 아직 정해지지 않음
     data object Undecided : MoodBody
 
     data class KeyGuide(val rows: List<KeyGuideRow>) : MoodBody
+
+    // 받아 둔 값으로 판정을 계산하는 중. 글은 고정이라 싣지 않는다.
+    data object Calculating : MoodBody
 
     data class Assessment(val mood: MoodUiState) : MoodBody
 
@@ -173,8 +185,10 @@ data class SectorRowUiState(
     val name: UiText,
     // ETF 기호: "SMH"
     val symbol: String,
-    // 값을 보이는 줄에서 그 섹터의 기준 날짜가 전체 시장의 것과 다를 때만 있다.
+    // 값을 보이는 줄에서 받는 중이 아니고, 그 섹터의 기준 날짜가 전체 시장의 것과 다를 때만 있다.
     val asOfText: UiText?,
+    // 값을 보이는 줄이 받는 중일 때만 있다: "받는 중" 또는 "받는 중 · 11월 21일 값"
+    val refreshingText: UiText?,
     val content: SectorRowContent,
     val clickable: Boolean,
 )
